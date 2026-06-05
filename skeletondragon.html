@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skeleton Dragon Animation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #0a1128 0%, #000000 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(0, 200, 255, 0.8);
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 0 10px rgba(0, 100, 255, 0.8);
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 28px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        p {
+            margin: 0;
+            font-size: 16px;
+            opacity: 0.8;
+        }
+
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui">
+        <h1>Skeleton Dragon</h1>
+        <p>Move mouse to guide the wyrm. Click and hold to enrage.</p>
+    </div>
+
+    <script>
+        const canvas = document.createElement("canvas");
+        document.body.appendChild(canvas);
+        const ctx = canvas.getContext("2d", { alpha: false });
+
+        let width, height;
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // Input
+        const Input = {
+            x: width / 2, y: height / 2, left: false
+        };
+
+        const updateMouse = (e) => {
+            Input.x = e.clientX || (e.touches && e.touches[0].clientX);
+            Input.y = e.clientY || (e.touches && e.touches[0].clientY);
+        };
+
+        document.addEventListener("mousemove", updateMouse);
+        document.addEventListener("mousedown", (e) => { if (e.button === 0) Input.left = true; });
+        document.addEventListener("mouseup", (e) => { if (e.button === 0) Input.left = false; });
+        document.addEventListener("touchstart", (e) => { updateMouse(e); Input.left = true; });
+        document.addEventListener("touchmove", updateMouse);
+        document.addEventListener("touchend", () => { Input.left = false; });
+
+        // Globals
+        let time = 0;
+        const scale = 2.0;
+        let particles = [];
+
+        // --- PARTICLE SYSTEM ---
+        class Particle {
+            constructor(x, y, vx, vy, life, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.life = life;
+                this.maxLife = life;
+                this.size = Math.random() * 5 + 3;
+                this.color = color;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                this.life--;
+                this.size *= 0.96;
+            }
+            draw(ctx) {
+                const alpha = Math.max(0, this.life / this.maxLife);
+                ctx.globalCompositeOperation = "lighter";
+                ctx.fillStyle = `rgba(${this.color}, ${alpha * 0.8})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * scale, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // --- CREATURE CLASSES ---
+        class Segment {
+            constructor(parent, size, angle, range, stiffness, type, side = 1, phase = 0, depth = 0) {
+                this.isSegment = true;
+                this.parent = parent;
+                this.type = type;
+                this.side = side;
+                this.phase = phase;
+                this.depth = depth;
+
+                if (parent.children) {
+                    parent.children.push(this);
+                }
+
+                this.children = [];
+                this.size = size;
+                this.relAngle = angle;
+                this.defAngle = angle;
+                this.absAngle = parent.absAngle + angle;
+                this.range = range;
+                this.stiffness = stiffness;
+
+                this.updateRelative(false, true);
+            }
+
+            updateRelative(iter, flex) {
+                let currentDefAngle = this.defAngle;
+
+                // Wing Flapping Logic
+                if (this.type === "wingArm" || this.type === "wingHand") {
+                    let flapSpeed = Input.left ? 0.3 : 0.08;
+                    let flapAmount = Input.left ? 0.8 : 0.3;
+                    // Flap more backwards: we offset the sine wave so the primary motion pulls towards 0 (tail)
+                    let flapCycle = Math.sin(time * flapSpeed + this.phase);
+                    currentDefAngle = this.defAngle - (flapCycle + 0.5) * flapAmount * this.side * 0.8;
+                } else if (this.type.startsWith("wingFinger")) {
+                    let flapSpeed = Input.left ? 0.3 : 0.08;
+                    let flapAmount = Input.left ? 0.2 : 0.05;
+                    // Cosine gives a nice trailing lag effect
+                    currentDefAngle = this.defAngle - Math.cos(time * flapSpeed + this.phase) * flapAmount * this.side;
+                }
+
+                this.relAngle = this.relAngle - 2 * Math.PI * Math.floor((this.relAngle - currentDefAngle) / (2 * Math.PI) + 0.5);
+
+                if (flex) {
+                    this.relAngle = Math.min(
+                        currentDefAngle + this.range / 2,
+                        Math.max(
+                            currentDefAngle - this.range / 2,
+                            (this.relAngle - currentDefAngle) / this.stiffness + currentDefAngle
+                        )
+                    );
+                }
+
+                this.absAngle = this.parent.absAngle + this.relAngle;
+                this.x = this.parent.x + Math.cos(this.absAngle) * this.size;
+                this.y = this.parent.y + Math.sin(this.absAngle) * this.size;
+
+                // Emit particles from ribs and wings occasionally
+                if ((this.type === "rib" || this.type.startsWith("wing")) && Math.random() < (Input.left ? 0.1 : 0.02)) {
+                    particles.push(new Particle(this.x, this.y, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, Math.random() * 20 + 10, "0, 150, 255"));
+                }
+
+                if (iter) {
+                    for (let child of this.children) {
+                        child.updateRelative(iter, flex);
+                    }
+                }
+            }
+
+            draw(iter) {
+                ctx.globalCompositeOperation = "source-over";
+
+                if (this.type === "spine") {
+                    ctx.beginPath();
+                    ctx.moveTo(this.parent.x, this.parent.y);
+                    ctx.lineTo(this.x, this.y);
+
+                    const taper = Math.max(0.1, 1 - this.depth / 60);
+
+                    // Outer aura
+                    ctx.strokeStyle = "rgba(0, 150, 255, 0.3)";
+                    ctx.lineWidth = 15 * scale * taper;
+                    ctx.lineCap = "round";
+                    ctx.stroke();
+
+                    // Bone
+                    ctx.strokeStyle = "rgba(220, 230, 255, 0.9)";
+                    ctx.lineWidth = 8 * scale * taper;
+                    ctx.stroke();
+
+                    // Core marrow
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.strokeStyle = Input.left ? "rgba(0, 255, 255, 1)" : "rgba(0, 100, 255, 0.8)";
+                    ctx.lineWidth = 2 * scale * taper;
+                    ctx.stroke();
+
+                    // Spine spikes
+                    if (this.depth % 3 === 0 && this.depth > 5 && this.depth < 45) {
+                        ctx.globalCompositeOperation = "source-over";
+                        ctx.fillStyle = "rgba(200, 210, 230, 0.9)";
+                        ctx.beginPath();
+                        let backAngle = this.absAngle + Math.PI;
+                        let spikeX = this.parent.x + Math.cos(backAngle) * 6 * scale * taper;
+                        let spikeY = this.parent.y + Math.sin(backAngle) * 6 * scale * taper;
+                        ctx.moveTo(this.parent.x + Math.cos(this.absAngle + Math.PI / 2) * 5 * scale * taper, this.parent.y + Math.sin(this.absAngle + Math.PI / 2) * 5 * scale * taper);
+                        ctx.lineTo(spikeX, spikeY);
+                        ctx.lineTo(this.parent.x + Math.cos(this.absAngle - Math.PI / 2) * 5 * scale * taper, this.parent.y + Math.sin(this.absAngle - Math.PI / 2) * 5 * scale * taper);
+                        ctx.fill();
+                    }
+
+                } else if (this.type.startsWith("rib")) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.parent.x, this.parent.y);
+                    ctx.lineTo(this.x, this.y);
+
+                    let isTip = this.type === "rib3";
+                    let isMid = this.type === "rib2";
+                    let lw = isTip ? 1 : (isMid ? 3 : 5);
+
+                    ctx.strokeStyle = "rgba(180, 190, 220, 0.9)";
+                    ctx.lineWidth = lw * scale;
+                    ctx.lineCap = "round";
+                    ctx.stroke();
+
+                    // Inner glow for ribs
+                    ctx.globalCompositeOperation = "lighter";
+                    ctx.strokeStyle = "rgba(0, 120, 255, 0.4)";
+                    ctx.lineWidth = Math.max(1, lw - 1) * scale;
+                    ctx.stroke();
+
+                } else if (this.type.startsWith("wing")) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.parent.x, this.parent.y);
+                    ctx.lineTo(this.x, this.y);
+
+                    let isArm = this.type === "wingArm" || this.type === "wingHand";
+                    ctx.strokeStyle = isArm ? "rgba(200, 210, 240, 0.9)" : "rgba(160, 180, 220, 0.8)";
+                    ctx.lineWidth = (isArm ? 6 : (this.type === "wingFinger3" ? 1 : 3)) * scale;
+                    ctx.lineCap = "round";
+                    ctx.stroke();
+
+                    // Joint glows
+                    if (isArm || this.type === "wingFinger1") {
+                        ctx.globalCompositeOperation = "lighter";
+                        ctx.fillStyle = "rgba(0, 150, 255, 0.4)";
+                        ctx.beginPath();
+                        ctx.arc(this.parent.x, this.parent.y, 4 * scale, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.globalCompositeOperation = "source-over";
+                    }
+
+                    // Webbing effect
+                    if (this.type.startsWith("wingFinger")) {
+                        let hand = this.parent;
+                        while (hand && hand.type !== "wingHand") {
+                            hand = hand.parent;
+                        }
+
+                        if (hand) {
+                            ctx.globalCompositeOperation = "lighter";
+                            ctx.fillStyle = Input.left ? "rgba(0, 150, 255, 0.06)" : "rgba(0, 50, 150, 0.02)";
+                            ctx.beginPath();
+                            ctx.moveTo(this.parent.x, this.parent.y);
+                            ctx.lineTo(this.x, this.y);
+                            ctx.lineTo(hand.x, hand.y);
+                            ctx.fill();
+
+                            // Webbing outline
+                            ctx.strokeStyle = Input.left ? "rgba(0, 200, 255, 0.2)" : "rgba(0, 100, 200, 0.05)";
+                            ctx.lineWidth = 0.5 * scale;
+                            ctx.stroke();
+                        }
+                    }
+                }
+
+                if (iter) {
+                    for (let child of this.children) {
+                        child.draw(true);
+                    }
+                }
+            }
+
+            follow(iter) {
+                const x = this.parent.x;
+                const y = this.parent.y;
+                const dist = Math.hypot(this.x - x, this.y - y);
+
+                this.x = x + this.size * (this.x - x) / dist;
+                this.y = y + this.size * (this.y - y) / dist;
+
+                this.absAngle = Math.atan2(this.y - y, this.x - x);
+                this.relAngle = this.absAngle - this.parent.absAngle;
+
+                this.updateRelative(false, true);
+
+                if (iter) {
+                    for (let child of this.children) {
+                        child.follow(true);
+                    }
+                }
+            }
+        }
+
+        class Creature {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.absAngle = 0;
+
+                this.fSpeed = 0;
+                this.fAccel = 10;
+                this.fFric = 0.8;
+                this.fRes = 0.5;
+                this.fThresh = 20;
+
+                this.rSpeed = 0;
+                this.rAccel = 0.4;
+                this.rFric = 0.08;
+                this.rRes = 0.5;
+                this.rThresh = 0.2;
+
+                this.children = [];
+            }
+
+            follow(x, y) {
+                const dist = Math.hypot(this.x - x, this.y - y);
+                const angle = Math.atan2(y - this.y, x - this.x);
+
+                this.fSpeed += this.fAccel * (dist > this.fThresh);
+                this.fSpeed *= 1 - this.fRes;
+                this.speed = Math.max(0, this.fSpeed - this.fFric);
+
+                let dif = this.absAngle - angle;
+                dif -= 2 * Math.PI * Math.floor(dif / (2 * Math.PI) + 0.5);
+
+                if (Math.abs(dif) > this.rThresh && dist > this.fThresh) {
+                    this.rSpeed -= this.rAccel * (2 * (dif > 0) - 1);
+                }
+
+                this.rSpeed *= 1 - this.rRes;
+
+                if (Math.abs(this.rSpeed) > this.rFric) {
+                    this.rSpeed -= this.rFric * (2 * (this.rSpeed > 0) - 1);
+                } else {
+                    this.rSpeed = 0;
+                }
+
+                this.absAngle += this.rSpeed;
+                this.x += this.speed * Math.cos(this.absAngle);
+                this.y += this.speed * Math.sin(this.absAngle);
+
+                this.absAngle += Math.PI;
+                for (let child of this.children) {
+                    child.follow(true, true);
+                }
+                this.absAngle -= Math.PI;
+            }
+
+            draw(iter) {
+                // Emit mouth fire particles
+                if (Input.left || Math.random() < 0.3) {
+                    let pSpeed = Input.left ? 8 : 2;
+                    particles.push(new Particle(
+                        this.x + Math.cos(this.absAngle) * 20 * scale,
+                        this.y + Math.sin(this.absAngle) * 20 * scale,
+                        Math.cos(this.absAngle + (Math.random() - 0.5)) * pSpeed,
+                        Math.sin(this.absAngle + (Math.random() - 0.5)) * pSpeed,
+                        Math.random() * 30 + 20,
+                        Input.left ? "0, 255, 255" : "0, 100, 255"
+                    ));
+                }
+
+                ctx.globalCompositeOperation = "source-over";
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.absAngle);
+
+                // Glow
+                ctx.shadowBlur = Input.left ? 40 : 20;
+                ctx.shadowColor = "#00aaff";
+
+                // Draw Skull
+                ctx.fillStyle = "#e6eaf5"; // Bone color
+                ctx.strokeStyle = "#8da2c9"; // Shading
+
+                // Main skull plate
+                ctx.beginPath();
+                ctx.moveTo(22 * scale, 0); // Snout tip
+                ctx.lineTo(12 * scale, -5 * scale); // Snout ridge right
+                ctx.lineTo(2 * scale, -8 * scale); // Brow right
+                ctx.lineTo(-4 * scale, -12 * scale); // Cheek bone right
+                ctx.lineTo(-10 * scale, -8 * scale); // Back skull right
+                ctx.lineTo(-14 * scale, 0); // Neck joint
+                ctx.lineTo(-10 * scale, 8 * scale); // Back skull left
+                ctx.lineTo(-4 * scale, 12 * scale); // Cheek bone left
+                ctx.lineTo(2 * scale, 8 * scale); // Brow left
+                ctx.lineTo(12 * scale, 5 * scale); // Snout ridge left
+                ctx.closePath();
+                ctx.fill();
+                ctx.lineWidth = 1 * scale;
+                ctx.stroke();
+
+                // Horns (articulate based on enrage)
+                let hornAngle = Input.left ? 0.5 : 0.2;
+
+                ctx.save();
+                ctx.translate(-8 * scale, -6 * scale);
+                ctx.rotate(-hornAngle);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(-15 * scale, -10 * scale, -25 * scale, -5 * scale);
+                ctx.lineTo(-10 * scale, 2 * scale);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+
+                ctx.save();
+                ctx.translate(-8 * scale, 6 * scale);
+                ctx.rotate(hornAngle);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(-15 * scale, 10 * scale, -25 * scale, 5 * scale);
+                ctx.lineTo(-10 * scale, -2 * scale);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+
+                // Eye sockets
+                ctx.fillStyle = "#050a14";
+                ctx.shadowBlur = 0;
+                ctx.beginPath();
+                ctx.ellipse(4 * scale, -4 * scale, 3 * scale, 1.5 * scale, 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(4 * scale, 4 * scale, 3 * scale, 1.5 * scale, -0.3, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Glowing Soul Eyes
+                ctx.globalCompositeOperation = "lighter";
+                ctx.shadowBlur = Input.left ? 20 : 10;
+                ctx.shadowColor = Input.left ? "#00ffff" : "#0055ff";
+                ctx.fillStyle = Input.left ? "#ffffff" : "#00aaff";
+                ctx.beginPath();
+                ctx.arc(4 * scale, -4 * scale, 1.2 * scale, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(4 * scale, 4 * scale, 1.2 * scale, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+                ctx.shadowBlur = 0; // reset
+                ctx.globalCompositeOperation = "source-over";
+
+                if (iter) {
+                    for (let child of this.children) {
+                        child.draw(true);
+                    }
+                }
+            }
+        }
+
+        // --- INITIALIZATION ---
+        let dragon;
+
+        function init() {
+            dragon = new Creature(width / 2, height / 2);
+            let spinal = dragon;
+            const numSegments = 55;
+
+            for (let i = 0; i < numSegments; i++) {
+                // Spine tapers down
+                let size = (14 - (i / numSegments) * 10) * scale;
+                spinal = new Segment(spinal, size, 0, 1.2, 1.8, "spine", 1, 0, i);
+
+                // Ribcage (segments 3 to 22)
+                if (i > 3 && i < 22 && i % 2 === 0) {
+                    for (let side of [-1, 1]) {
+                        let ribSize = (22 - Math.abs(i - 12)) * scale;
+                        let r1 = new Segment(spinal, ribSize * 0.4, side * 1.4, 0.1, 2, "rib1", side, 0, i);
+                        let r2 = new Segment(r1, ribSize * 0.5, side * 0.6, 0.1, 2, "rib2", side, 0, i);
+                        let r3 = new Segment(r2, ribSize * 0.3, side * 0.9, 0.1, 2, "rib3", side, 0, i);
+                    }
+                }
+
+                // Wings (segment 8)
+                if (i === 8) {
+                    for (let side of [-1, 1]) {
+                        // Main wing arm bones (Humerus, Radius, Hand) - Much larger
+                        let w1 = new Segment(spinal, 40 * scale, side * 0.8, 0.1, 2, "wingArm", side, 0, i);
+                        let w2 = new Segment(w1, 45 * scale, side * 1.4, 0.1, 2, "wingArm", side, 0, i);
+                        let wHand = new Segment(w2, 15 * scale, side * 0.4, 0.1, 2, "wingHand", side, 0, i);
+
+                        // Wing fingers (radiating from the hand mostly, like a bat/dragon)
+                        let fingers = 5;
+                        for (let f = 0; f < fingers; f++) {
+                            let fAngle = side * (0.2 + f * 0.3); // Sweeping more backwards
+                            let fLen = (85 - Math.abs(f - 2) * 12) * scale;
+                            let f1 = new Segment(wHand, fLen * 0.4, fAngle, 0.1, 2, "wingFinger1", side, 0, i);
+                            let f2 = new Segment(f1, fLen * 0.4, side * 0.1, 0.1, 2, "wingFinger2", side, 0, i);
+                            let f3 = new Segment(f2, fLen * 0.2, side * 0.1, 0.1, 2, "wingFinger3", side, 0, i);
+                        }
+                    }
+                }
+            }
+        }
+
+        function animate() {
+            time += 1;
+
+            // Dark background with slight trail/motion blur
+            ctx.globalCompositeOperation = "source-over";
+            ctx.fillStyle = "rgba(5, 8, 15, 0.3)";
+            ctx.fillRect(0, 0, width, height);
+
+            // Enrage Mechanics
+            if (Input.left) {
+                dragon.fAccel = 25; // Speed up
+                dragon.fRes = 0.2;
+            } else {
+                dragon.fAccel = 10; // Normal speed
+                dragon.fRes = 0.5;
+            }
+
+            dragon.follow(Input.x, Input.y);
+            dragon.draw(true);
+
+            // Update and draw particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        init();
+        animate();
+
+    </script>
+</body>
+
+</html>
