@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Fire Centipede Animation</title>
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+}
+#instructions {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    color: rgba(255, 100, 0, 0.8);
+    pointer-events: none;
+    font-size: 18px;
+    text-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
+    z-index: 10;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="instructions">Move mouse to guide the beast. Click and hold to enrage.</div>
+
+<script>
+// Base Input handling
+var Input = {
+    mouse: { x: window.innerWidth / 2, y: window.innerHeight / 2, left: false }
+};
+
+document.addEventListener("mousemove", function(e) {
+    Input.mouse.x = e.clientX;
+    Input.mouse.y = e.clientY;
+});
+document.addEventListener("mousedown", function(e) {
+    if(e.button === 0) Input.mouse.left = true;
+});
+document.addEventListener("mouseup", function(e) {
+    if(e.button === 0) Input.mouse.left = false;
+});
+document.addEventListener("touchstart", function(e) {
+    Input.mouse.x = e.touches[0].clientX;
+    Input.mouse.y = e.touches[0].clientY;
+    Input.mouse.left = true;
+});
+document.addEventListener("touchmove", function(e) {
+    Input.mouse.x = e.touches[0].clientX;
+    Input.mouse.y = e.touches[0].clientY;
+});
+document.addEventListener("touchend", function(e) {
+    Input.mouse.left = false;
+});
+
+var canvas = document.createElement("canvas");
+document.body.appendChild(canvas);
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+window.addEventListener("resize", function() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+});
+
+var ctx = canvas.getContext("2d");
+
+
+
+// --- CREATURE CLASSES ---
+var segmentCount = 0;
+var scale = 2.8; 
+
+class Segment {
+    constructor(parent, size, angle, range, stiffness, type) {
+        segmentCount++;
+        this.isSegment = true;
+        this.parent = parent;
+        this.type = type;
+
+        if (typeof parent.children == "object") {
+            parent.children.push(this);
+        }
+
+        this.children = [];
+        this.size = size;
+        this.relAngle = angle;
+        this.defAngle = angle;
+        this.absAngle = parent.absAngle + angle;
+        this.range = range;
+        this.stiffness = stiffness;
+
+        this.updateRelative(false, true);
+    }
+
+    updateRelative(iter, flex) {
+        this.relAngle = this.relAngle - 2 * Math.PI * Math.floor((this.relAngle - this.defAngle) / (2 * Math.PI) + 0.5);
+
+        if (flex) {
+            this.relAngle = Math.min(
+                this.defAngle + this.range / 2,
+                Math.max(
+                    this.defAngle - this.range / 2,
+                    (this.relAngle - this.defAngle) / this.stiffness + this.defAngle
+                )
+            );
+        }
+
+        this.absAngle = this.parent.absAngle + this.relAngle;
+        this.x = this.parent.x + Math.cos(this.absAngle) * this.size;
+        this.y = this.parent.y + Math.sin(this.absAngle) * this.size;
+
+        if (iter) {
+            for (var i = 0; i < this.children.length; i++) {
+                this.children[i].updateRelative(iter, flex);
+            }
+        }
+    }
+
+    draw(iter) {
+        ctx.beginPath();
+        ctx.moveTo(this.parent.x, this.parent.y);
+        ctx.lineTo(this.x, this.y);
+
+        ctx.globalCompositeOperation = "lighter";
+
+        if (this.type === "spine") {
+            // Bright fiery core
+            ctx.strokeStyle = "rgba(255, 120, 0, 0.8)";
+            ctx.lineWidth = 14 * scale;
+            ctx.lineCap = "round";
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(255, 230, 100, 1)";
+            ctx.lineWidth = 6 * scale;
+            ctx.stroke();
+            
+
+        } else {
+            let colors = {
+                "leg1": "rgba(255, 80, 0, 0.8)",
+                "leg2": "rgba(255, 50, 0, 0.6)",
+                "leg3": "rgba(200, 20, 0, 0.5)",
+                "leg4": "rgba(150, 0, 0, 0.4)"
+            };
+            let widths = {
+                "leg1": 7,
+                "leg2": 5,
+                "leg3": 3,
+                "leg4": 2
+            };
+            
+            ctx.strokeStyle = colors[this.type];
+            ctx.lineWidth = widths[this.type] * scale;
+            ctx.lineCap = "round";
+            ctx.stroke();
+            
+
+        }
+        
+        ctx.globalCompositeOperation = "source-over";
+
+        if (iter) {
+            for (var i = 0; i < this.children.length; i++) {
+                this.children[i].draw(true);
+            }
+        }
+    }
+
+    follow(iter) {
+        var x = this.parent.x;
+        var y = this.parent.y;
+        var dist = ((this.x - x) ** 2 + (this.y - y) ** 2) ** 0.5;
+
+        this.x = x + this.size * (this.x - x) / dist;
+        this.y = y + this.size * (this.y - y) / dist;
+
+        this.absAngle = Math.atan2(this.y - y, this.x - x);
+        this.relAngle = this.absAngle - this.parent.absAngle;
+
+        this.updateRelative(false, true);
+
+        if (iter) {
+            for (var i = 0; i < this.children.length; i++) {
+                this.children[i].follow(true);
+            }
+        }
+    }
+}
+
+class Creature {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.absAngle = 0;
+
+        this.fSpeed = 0;
+        this.fAccel = 12;
+        this.fFric = 1;
+        this.fRes = 0.5;
+        this.fThresh = 16;
+
+        this.rSpeed = 0;
+        this.rAccel = 0.5;
+        this.rFric = 0.085;
+        this.rRes = 0.5;
+        this.rThresh = 0.3;
+
+        this.children = [];
+    }
+
+    follow(x, y) {
+        var dist = ((this.x - x) ** 2 + (this.y - y) ** 2) ** 0.5;
+        var angle = Math.atan2(y - this.y, x - this.x);
+
+        this.fSpeed += this.fAccel * (dist > this.fThresh);
+        this.fSpeed *= 1 - this.fRes;
+        this.speed = Math.max(0, this.fSpeed - this.fFric);
+
+        var dif = this.absAngle - angle;
+        dif -= 2 * Math.PI * Math.floor(dif / (2 * Math.PI) + 0.5);
+
+        if (Math.abs(dif) > this.rThresh && dist > this.fThresh) {
+            this.rSpeed -= this.rAccel * (2 * (dif > 0) - 1);
+        }
+
+        this.rSpeed *= 1 - this.rRes;
+
+        if (Math.abs(this.rSpeed) > this.rFric) {
+            this.rSpeed -= this.rFric * (2 * (this.rSpeed > 0) - 1);
+        } else {
+            this.rSpeed = 0;
+        }
+
+        this.absAngle += this.rSpeed;
+        this.x += this.speed * Math.cos(this.absAngle);
+        this.y += this.speed * Math.sin(this.absAngle);
+
+        this.absAngle += Math.PI;
+        for (var i = 0; i < this.children.length; i++) {
+            this.children[i].follow(true, true);
+        }
+        this.absAngle -= Math.PI;
+    }
+
+    draw(iter) {
+        ctx.globalCompositeOperation = "lighter";
+        
+        // Head Glow
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = "#ff2200";
+        
+        // Head Core
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 10 * scale, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Head Outer Shell
+        ctx.fillStyle = "#ff5500";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 14 * scale, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Mandibles (Pincers)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#ff0000";
+        ctx.strokeStyle = "#ffdd00";
+        ctx.lineWidth = 4 * scale;
+        ctx.lineCap = "round";
+        
+        let mAngle = Math.PI/4;
+        if (Input.mouse.left) {
+            mAngle = Math.PI/6; // Open wide when enraged
+        }
+        
+        // Right Mandible
+        ctx.beginPath();
+        ctx.moveTo(this.x + Math.cos(this.absAngle + Math.PI/6) * 10 * scale,
+                   this.y + Math.sin(this.absAngle + Math.PI/6) * 10 * scale);
+        ctx.quadraticCurveTo(
+                   this.x + Math.cos(this.absAngle + mAngle) * 20 * scale,
+                   this.y + Math.sin(this.absAngle + mAngle) * 20 * scale,
+                   this.x + Math.cos(this.absAngle + 0.1) * 30 * scale,
+                   this.y + Math.sin(this.absAngle + 0.1) * 30 * scale);
+        ctx.stroke();
+
+        // Left Mandible
+        ctx.beginPath();
+        ctx.moveTo(this.x + Math.cos(this.absAngle - Math.PI/6) * 10 * scale,
+                   this.y + Math.sin(this.absAngle - Math.PI/6) * 10 * scale);
+        ctx.quadraticCurveTo(
+                   this.x + Math.cos(this.absAngle - mAngle) * 20 * scale,
+                   this.y + Math.sin(this.absAngle - mAngle) * 20 * scale,
+                   this.x + Math.cos(this.absAngle - 0.1) * 30 * scale,
+                   this.y + Math.sin(this.absAngle - 0.1) * 30 * scale);
+        ctx.stroke();
+
+        // Evil Eyes
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowColor = "#ff0000";
+        ctx.shadowBlur = 20;
+        let eyeDist = 7 * scale;
+        let eyeAngle = Math.PI / 3;
+        
+        ctx.beginPath();
+        ctx.arc(this.x + Math.cos(this.absAngle + eyeAngle) * eyeDist, 
+                this.y + Math.sin(this.absAngle + eyeAngle) * eyeDist, 
+                2.5 * scale, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(this.x + Math.cos(this.absAngle - eyeAngle) * eyeDist, 
+                this.y + Math.sin(this.absAngle - eyeAngle) * eyeDist, 
+                2.5 * scale, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.shadowBlur = 0; // reset
+        ctx.globalCompositeOperation = "source-over";
+
+        if (iter) {
+            for (var i = 0; i < this.children.length; i++) {
+                this.children[i].draw(true);
+            }
+        }
+    }
+}
+
+var critter;
+
+function setupCentipede() {
+    critter = new Creature(window.innerWidth / 2, window.innerHeight / 2);
+    var spinal = critter;
+    var segments = 60;
+
+    for (var i = 0; i < segments; i++) {
+        spinal = new Segment(spinal, 6 * scale, 0, 1.5, 1.2, "spine");
+
+        for (var side = -1; side <= 1; side += 2) {
+            var leg1 = new Segment(spinal, 6 * scale, side * 1.3, 0.5, 2, "leg1");
+            var leg2 = new Segment(leg1, 14 * scale, -side * 0.6, 1.2, 2, "leg2");
+            var leg3 = new Segment(leg2, 12 * scale, side * 0.7, 1.2, 2, "leg3");
+            new Segment(leg3, 8 * scale, -side * 0.3, 0.4, 2, "leg4");
+        }
+    }
+    
+    animate();
+}
+
+function animate() {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)"; // Motion blur tail
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Enrage Mechanics
+    if (Input.mouse.left) {
+        critter.fAccel = 30; // High speed
+        critter.fRes = 0.2;
+    } else {
+        critter.fAccel = 12; // Normal speed
+        critter.fRes = 0.5;
+    }
+
+    critter.follow(Input.mouse.x, Input.mouse.y);
+    
+    critter.draw(true);
+
+    requestAnimationFrame(animate);
+}
+
+setupCentipede();
+
+</script>
+</body>
+</html>
