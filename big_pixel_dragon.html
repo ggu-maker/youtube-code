@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Pixel Black Dragon</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #000;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// Offscreen canvas for drawing 1:1 pixel art before scaling up
+const offCanvas = document.createElement('canvas');
+offCanvas.width = 120;
+offCanvas.height = 100;
+const offCtx = offCanvas.getContext('2d');
+
+let time = 0;
+
+function drawPx(x, y, color) {
+  x = Math.round(x);
+  y = Math.round(y);
+  if (x >= 0 && x < offCanvas.width && y >= 0 && y < offCanvas.height) {
+    offCtx.fillStyle = color;
+    offCtx.fillRect(x, y, 1, 1);
+  }
+}
+
+function render() {
+  // Resize handler
+  if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  // Clear offscreen canvas
+  offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+  
+  const width = offCanvas.width;
+  const height = offCanvas.height;
+  
+  const cx = width / 2;
+  const cy = height / 2;
+  
+  // Vertical bobbing for the whole dragon
+  const bob = Math.sin(time * Math.PI * 2) * 3;
+  const center_y = cy + bob;
+  
+  // --- Draw Tail ---
+  for (let t = 0; t < 18; t++) {
+    let tx = cx;
+    let ty = center_y + 4 + t;
+    // Tail wave propagates down
+    let wave = Math.sin(time * Math.PI * 2 - t * 0.3) * 4;
+    tx += wave;
+    
+    let color = '#1a1a1a';
+    drawPx(tx, ty, color);
+    if (t < 12) {
+      drawPx(tx - 1, ty, '#111');
+      drawPx(tx + 1, ty, '#111');
+    }
+    // Tail spike/tip
+    if (t === 17) {
+      drawPx(tx - 1, ty, '#222');
+      drawPx(tx + 1, '#222');
+      drawPx(tx - 2, ty + 1, '#333');
+      drawPx(tx + 2, ty + 1, '#333');
+      drawPx(tx - 3, ty + 2, '#444');
+      drawPx(tx + 3, ty + 2, '#444');
+    }
+  }
+
+  // --- Draw Wings (rendered behind the body sometimes, but let's do back layer first) ---
+  const flapSpeed = 1.5; // wings flap slightly faster than body bob
+  const flapAngle = Math.sin(time * Math.PI * 2 * flapSpeed);
+  const wr_x = cx;
+  const wr_y = center_y - 2;
+  
+  const wingLength1 = 20;
+  const wingLength2 = 18;
+  
+  for (let side of [-1, 1]) {
+    // Joint 1 kinematics
+    let angle1 = flapAngle * 0.7;
+    if (flapAngle < 0) angle1 = flapAngle * 1.0; // steeper upstroke
+    
+    let j1_x = wr_x + side * wingLength1 * Math.cos(angle1);
+    let j1_y = wr_y + wingLength1 * Math.sin(angle1);
+    
+    // Joint 2 kinematics
+    let angle2 = angle1 + 0.5 * flapAngle;
+    let j2_x = j1_x + side * wingLength2 * Math.cos(angle2);
+    let j2_y = j1_y + wingLength2 * Math.sin(angle2);
+    
+    // Wing Bone 1
+    let steps = Math.ceil(wingLength1 * 1.5);
+    for (let s = 0; s <= steps; s++) {
+      let t_s = s / steps;
+      let bx = wr_x + (j1_x - wr_x) * t_s;
+      let by = wr_y + (j1_y - wr_y) * t_s;
+      
+      let dx = j1_x - wr_x;
+      let dy = j1_y - wr_y;
+      let len = Math.hypot(dx, dy);
+      let nx = (-dy / len) * side;
+      let ny = (dx / len) * side;
+      
+      let featherLen = 12 * (1 - t_s) + 5;
+      for (let fl = 0; fl <= featherLen; fl++) {
+        let c = '#111';
+        if (fl === 0) c = '#444'; // Bone edge highlight
+        else if (fl === 1) c = '#222';
+        else if (fl > featherLen - 2) c = '#0a0a0a'; // Feather tips fade
+        
+        // Add some webbing tears
+        if (s % 4 === 0 && fl > featherLen * 0.7) continue; 
+        
+        drawPx(bx + nx * fl, by + ny * fl, c);
+      }
+    }
+    
+    // Wing Bone 2
+    steps = Math.ceil(wingLength2 * 1.5);
+    for (let s = 0; s <= steps; s++) {
+      let t_s = s / steps;
+      let bx = j1_x + (j2_x - j1_x) * t_s;
+      let by = j1_y + (j2_y - j1_y) * t_s;
+      
+      let dx = j2_x - j1_x;
+      let dy = j2_y - j1_y;
+      let len = Math.hypot(dx, dy);
+      let nx = (-dy / len) * side;
+      let ny = (dx / len) * side;
+      
+      let featherLen = 10 * (1 - t_s) + 2;
+      for (let fl = 0; fl <= featherLen; fl++) {
+        let c = '#111';
+        if (fl === 0) c = '#444';
+        else if (fl === 1) c = '#222';
+        else if (fl > featherLen - 2) c = '#0a0a0a';
+        
+        if (s % 3 === 0 && fl > featherLen * 0.8) continue;
+        
+        drawPx(bx + nx * fl, by + ny * fl, c);
+      }
+    }
+  }
+
+  // --- Draw Body ---
+  for (let b = -5; b <= 6; b++) {
+    let bw = (b >= -3 && b <= 2) ? 4 : 3;
+    if (b === 5) bw = 2;
+    if (b === 6) bw = 1;
+    for (let w = -bw; w <= bw; w++) {
+      let color = '#151515'; // Base body color
+      
+      // Chest glowing core
+      if (b >= -1 && b <= 3 && Math.abs(w) <= 2) {
+        color = '#300';
+        if (b >= 0 && b <= 2 && Math.abs(w) <= 1) {
+            color = '#800';
+            if (b === 1 && w === 0) color = '#ff0044';
+        }
+      }
+      
+      // Edge highlights for 3D feel
+      if (Math.abs(w) === bw && color === '#151515') color = '#2a2a2a';
+      
+      // Spine spikes
+      if (w === 0 && b < 5 && color === '#151515') color = '#000';
+      
+      drawPx(cx + w, center_y + b, color);
+    }
+  }
+
+  // --- Draw Head ---
+  const headShape = [
+    "  #  #  ",
+    "  #  #  ",
+    " ##  ## ",
+    " ###### ",
+    " #@##@# ",
+    " ###### ",
+    "  ####  "
+  ];
+  let hy = center_y - 8;
+  for (let y = 0; y < headShape.length; y++) {
+    for (let x = 0; x < headShape[y].length; x++) {
+      let char = headShape[y][x];
+      if (char !== ' ') {
+        let c = '#111';
+        if (char === '@') c = '#ff0044'; // Glowing red eyes
+        if (y === 0 || y === 1) c = '#333'; // Horns lighter
+        if (char === '#' && x === 0 || x === headShape[y].length - 1) c = '#222'; // Head edges
+        drawPx(cx - 4 + x, hy - 6 + y, c);
+      }
+    }
+  }
+
+
+  // --- Render to Main Canvas ---
+  // Draw deep ambient background gradient
+  const grad = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, 0, 
+    canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) / 1.5
+  );
+  grad.addColorStop(0, '#1a0505'); // subtle red glow in the dark
+  grad.addColorStop(1, '#000000');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.imageSmoothingEnabled = false; // CRITICAL for crisp pixel art scaling
+  
+  // Setup glowing aura
+  ctx.shadowColor = '#ff0044';
+  ctx.shadowBlur = 80;
+  
+  // Scale up pixel art (make it BIG)
+  const scale = 12;
+  const drawWidth = offCanvas.width * scale;
+  const drawHeight = offCanvas.height * scale;
+  const drawX = canvas.width / 2 - drawWidth / 2;
+  const drawY = canvas.height / 2 - drawHeight / 2;
+  
+  // Draw the pixelated offscreen canvas onto the main canvas
+  ctx.drawImage(offCanvas, drawX, drawY, drawWidth, drawHeight);
+  
+  // Reset shadow for next frame clear
+  ctx.shadowBlur = 0; 
+  
+  time += 0.005; // Animation speed
+  requestAnimationFrame(render);
+}
+
+// Start loop
+render();
+</script>
+</body>
+</html>
