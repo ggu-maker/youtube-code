@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Realistic Black Hole</title>
+<style>
+body{
+    margin:0;
+    overflow:hidden;
+    background:#000;
+}
+canvas{
+    display:block;
+}
+</style>
+</head>
+<body>
+
+<script type="module">
+
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165/build/three.module.js';
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(
+    75,
+    innerWidth/innerHeight,
+    0.1,
+    5000
+);
+
+camera.position.z = 250;
+
+const renderer = new THREE.WebGLRenderer({
+    antialias:true
+});
+
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff,0.2));
+
+const starsGeo = new THREE.BufferGeometry();
+const stars = [];
+
+for(let i=0;i<15000;i++){
+
+    stars.push(
+        (Math.random()-0.5)*4000,
+        (Math.random()-0.5)*4000,
+        (Math.random()-0.5)*4000
+    );
+}
+
+starsGeo.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(stars,3)
+);
+
+const starsMat = new THREE.PointsMaterial({
+    color:0xffffff,
+    size:2
+});
+
+scene.add(new THREE.Points(starsGeo,starsMat));
+
+const blackHole = new THREE.Mesh(
+    new THREE.SphereGeometry(40,128,128),
+    new THREE.MeshBasicMaterial({
+        color:0x000000
+    })
+);
+
+scene.add(blackHole);
+
+const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(75,18,64,400),
+    new THREE.MeshBasicMaterial({
+        color:0xffaa33
+    })
+);
+
+ring.rotation.x = Math.PI/2.8;
+scene.add(ring);
+
+const particles = [];
+
+const diskGeo = new THREE.BufferGeometry();
+const diskVertices = [];
+
+for(let i=0;i<25000;i++){
+
+    let r = 90 + Math.random()*180;
+    let a = Math.random()*Math.PI*2;
+
+    diskVertices.push(
+        Math.cos(a)*r,
+        (Math.random()-0.5)*10,
+        Math.sin(a)*r
+    );
+
+    particles.push({
+        angle:a,
+        radius:r
+    });
+}
+
+diskGeo.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(
+        diskVertices,
+        3
+    )
+);
+
+const diskMat = new THREE.PointsMaterial({
+    color:0xff8844,
+    size:2,
+    transparent:true
+});
+
+const disk = new THREE.Points(
+    diskGeo,
+    diskMat
+);
+
+scene.add(disk);
+
+let mx=0,my=0;
+
+addEventListener('mousemove',e=>{
+
+    mx=(e.clientX/innerWidth-0.5)*0.5;
+    my=(e.clientY/innerHeight-0.5)*0.5;
+});
+
+function animate(){
+
+    requestAnimationFrame(animate);
+
+    ring.rotation.z += 0.005;
+
+    camera.position.x +=
+        (mx*100-camera.position.x)*0.03;
+
+    camera.position.y +=
+        (-my*100-camera.position.y)*0.03;
+
+    camera.lookAt(0,0,0);
+
+    const pos = disk.geometry.attributes.position.array;
+
+    for(let i=0;i<particles.length;i++){
+
+        particles[i].angle +=
+        0.003*(250/particles[i].radius);
+
+        pos[i*3] =
+        Math.cos(particles[i].angle)
+        *particles[i].radius;
+
+        pos[i*3+2] =
+        Math.sin(particles[i].angle)
+        *particles[i].radius;
+    }
+
+    disk.geometry.attributes.position.needsUpdate=true;
+
+    renderer.render(scene,camera);
+}
+
+animate();
+
+addEventListener("resize",()=>{
+
+camera.aspect=
+innerWidth/innerHeight;
+
+camera.updateProjectionMatrix();
+
+renderer.setSize(
+innerWidth,
+innerHeight
+);
+
+});
+
+</script>
+</body>
+</html>
