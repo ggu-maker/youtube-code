@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sharingan Amaterasu - Hyper Realistic</title>
+
+<style>
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+}
+/* We use two canvas layers now: 
+   - bgCanvas runs the trailing Amaterasu flames
+   - eyeCanvas draws the hyper-realistic eye so it stays perfectly crisp without smudging
+*/
+#bgCanvas, #eyeCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+#bgCanvas {
+    z-index: 1;
+}
+#eyeCanvas {
+    z-index: 2;
+    pointer-events: none; /* Allows mouse clicks to pass through to the window */
+    filter: drop-shadow(0 0 25px rgba(255, 0, 0, 0.4));
+}
+#overlay {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
+    color: rgba(255, 50, 50, 0.5);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    letter-spacing: 4px;
+    pointer-events: none;
+    text-transform: uppercase;
+    z-index: 3;
+}
+</style>
+
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+<canvas id="eyeCanvas"></canvas>
+<div id="overlay">Click & Hold to Unleash</div>
+
+<script>
+const bgCanvas = document.getElementById("bgCanvas");
+const bgCtx = bgCanvas.getContext("2d");
+
+const eyeCanvas = document.getElementById("eyeCanvas");
+const eyeCtx = eyeCanvas.getContext("2d");
+
+let w, h;
+let cx, cy;
+let targetCx, targetCy;
+let mouseActive = false;
+
+function resize(){
+    w = bgCanvas.width = eyeCanvas.width = innerWidth;
+    h = bgCanvas.height = eyeCanvas.height = innerHeight;
+    targetCx = w / 2;
+    targetCy = h / 2;
+    cx = targetCx;
+    cy = targetCy;
+}
+resize();
+addEventListener("resize", resize);
+
+addEventListener("mousemove", (e) => {
+    targetCx = (w / 2) + (e.clientX - w / 2) * 0.12;
+    targetCy = (h / 2) + (e.clientY - h / 2) * 0.12;
+});
+
+addEventListener("mousedown", () => mouseActive = true);
+addEventListener("mouseup", () => mouseActive = false);
+addEventListener("touchstart", (e) => {
+    mouseActive = true;
+    targetCx = (w / 2) + (e.touches[0].clientX - w / 2) * 0.12;
+    targetCy = (h / 2) + (e.touches[0].clientY - h / 2) * 0.12;
+});
+addEventListener("touchend", () => mouseActive = false);
+
+let t = 0;
+
+function flame(ctx, angle, radius){
+    ctx.beginPath();
+    let a0 = angle + Math.sin(t * 0.03) * 0.4;
+    let x0 = cx + Math.cos(a0) * radius;
+    let y0 = cy + Math.sin(a0) * radius;
+    ctx.moveTo(x0, y0);
+
+    for(let i = 1; i < 20; i++){
+        let a = angle + i * 0.12 + Math.sin(t * 0.05 + i) * 0.6;
+        let r = radius + i * 25;
+        let x = cx + Math.cos(a) * r;
+        let y = cy + Math.sin(a) * r;
+        ctx.lineTo(x, y);
+    }
+
+    ctx.strokeStyle = "rgba(255, 0, 0, 0.4)";
+    ctx.lineWidth = mouseActive ? 45 : 28;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = mouseActive ? 22 : 12;
+    ctx.stroke();
+}
+
+function tomoe(ctx, angle){
+    let r = 80;
+    let x = Math.cos(angle) * r;
+    let y = Math.sin(angle) * r;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle + Math.PI / 2); 
+
+    ctx.fillStyle = "#050505";
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(0, -14);
+    ctx.quadraticCurveTo(35, -15, 35, 30);
+    ctx.quadraticCurveTo(20, -2, 0, 10);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function animate(){
+    requestAnimationFrame(animate);
+
+    t += mouseActive ? 2.5 : 1;
+    cx += (targetCx - cx) * 0.1;
+    cy += (targetCy - cy) * 0.1;
+    let rot = t * 0.015;
+
+    // ==========================================
+    // 1. BACKGROUND CANVAS (Trailing Flames)
+    // ==========================================
+    bgCtx.fillStyle = mouseActive ? "rgba(5, 0, 0, 0.25)" : "rgba(0, 0, 0, 0.15)";
+    bgCtx.fillRect(0, 0, w, h);
+
+    let numFlames = 16;
+    for(let i = 0; i < numFlames; i++){
+        flame(bgCtx, i * Math.PI * 2 / numFlames + rot * 0.8, 160);
+    }
+
+    let particleCount = mouseActive ? 12 : 5;
+    for(let i = 0; i < particleCount; i++){
+        let a = Math.random() * Math.PI * 2;
+        let r = 160 + Math.random() * 300;
+        let x = cx + Math.cos(a) * r;
+        let y = cy + Math.sin(a) * r;
+        let size = 30 + Math.random() * 30;
+
+        let g = bgCtx.createRadialGradient(x, y, 0, x, y, size);
+        g.addColorStop(0, "rgba(0, 0, 0, 0.7)");
+        g.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+        bgCtx.fillStyle = g;
+        bgCtx.beginPath();
+        bgCtx.arc(x, y, size, 0, Math.PI * 2);
+        bgCtx.fill();
+    }
+
+
+    // ==========================================
+    // 2. FOREGROUND CANVAS (Hyper Realistic Eye)
+    // ==========================================
+    // Cleared every frame so the eye never smudges/ghosts when moving
+    eyeCtx.clearRect(0, 0, w, h);
+    
+    eyeCtx.save();
+    let pulse = 1 + Math.sin(t * 0.1) * (mouseActive ? 0.05 : 0.01);
+    eyeCtx.translate(cx, cy);
+    eyeCtx.scale(pulse, pulse);
+
+    // Glowing red aura behind the eye
+    let glow = eyeCtx.createRadialGradient(0, 0, 20, 0, 0, 280);
+    glow.addColorStop(0, "rgba(255, 30, 30, 0.8)");
+    glow.addColorStop(0.5, "rgba(200, 0, 0, 0.5)");
+    glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    eyeCtx.fillStyle = glow;
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 280, 0, Math.PI * 2);
+    eyeCtx.fill();
+
+    // Eye Base Shadow Rim (Makes it look like a 3D sphere)
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 142, 0, Math.PI * 2);
+    eyeCtx.fillStyle = "#000000";
+    eyeCtx.shadowColor = "rgba(255, 0, 0, 0.8)"; 
+    eyeCtx.shadowBlur = 30;
+    eyeCtx.fill();
+    eyeCtx.shadowBlur = 0; // reset
+
+    // 3D Spherical Iris Gradient (Dark edges, bright center)
+    let irisGrad = eyeCtx.createRadialGradient(0, 0, 20, 0, 0, 140);
+    irisGrad.addColorStop(0, "#ff3333");    // Bright center
+    irisGrad.addColorStop(0.5, "#cc0000");  // Deep mid
+    irisGrad.addColorStop(0.85, "#4d0000"); // Dark shadow edge
+    irisGrad.addColorStop(1, "#0a0000");    // Almost black rim
+
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 140, 0, Math.PI * 2);
+    eyeCtx.fillStyle = irisGrad;
+    eyeCtx.fill();
+
+    // Realistic Iris Muscle Fibers (Curved, organic lines)
+    eyeCtx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+    for(let i = 0; i < 150; i++){
+        let a = i * Math.PI * 2 / 150 + rot * 0.1;
+        eyeCtx.lineWidth = Math.random() * 2 + 0.2;
+        eyeCtx.beginPath();
+        let innerR = 35 + Math.random() * 15;
+        let outerR = 120 + Math.random() * 20;
+        
+        eyeCtx.moveTo(Math.cos(a) * innerR, Math.sin(a) * innerR);
+        let ctrlA = a + 0.15; // Bend the line organically
+        let midR = (innerR + outerR) / 2;
+        eyeCtx.quadraticCurveTo(
+            Math.cos(ctrlA) * midR, Math.sin(ctrlA) * midR,
+            Math.cos(a) * outerR, Math.sin(a) * outerR
+        );
+        eyeCtx.stroke();
+    }
+
+    // Physical Drop Shadows for the Pupil and Tomoe
+    eyeCtx.shadowColor = "rgba(0,0,0,0.9)";
+    eyeCtx.shadowBlur = 15;
+    eyeCtx.shadowOffsetX = -3;
+    eyeCtx.shadowOffsetY = 6;
+
+    // Center Pupil
+    eyeCtx.fillStyle = "#050505";
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 32, 0, Math.PI * 2);
+    eyeCtx.fill();
+
+    // Inner connecting ring
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 80, 0, Math.PI * 2);
+    eyeCtx.strokeStyle = "rgba(0,0,0,0.8)";
+    eyeCtx.lineWidth = 2;
+    eyeCtx.stroke();
+
+    // The Three Tomoe
+    tomoe(eyeCtx, rot);
+    tomoe(eyeCtx, rot + Math.PI * 2 / 3);
+    tomoe(eyeCtx, rot + Math.PI * 4 / 3);
+
+    // Turn off shadows for the glossy layers
+    eyeCtx.shadowColor = "transparent";
+    eyeCtx.shadowOffsetX = 0;
+    eyeCtx.shadowOffsetY = 0;
+    eyeCtx.shadowBlur = 0;
+
+    // Glassy Corneal Reflection (Gives the eye a wet, spherical liquid look)
+    let sheen = eyeCtx.createLinearGradient(-70, -140, 70, 0);
+    sheen.addColorStop(0, "rgba(255, 255, 255, 0.35)");
+    sheen.addColorStop(0.4, "rgba(255, 255, 255, 0.05)");
+    sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+    eyeCtx.fillStyle = sheen;
+    eyeCtx.beginPath();
+    eyeCtx.arc(0, 0, 140, 0, Math.PI * 2);
+    eyeCtx.fill();
+
+    // Intense Specular Light reflections (White dots from lighting)
+    eyeCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    eyeCtx.filter = "blur(3px)"; // Softens the light reflection
+    
+    eyeCtx.beginPath();
+    eyeCtx.arc(-45, -65, 12, 0, Math.PI * 2);
+    eyeCtx.fill();
+    
+    eyeCtx.beginPath();
+    eyeCtx.arc(-25, -75, 5, 0, Math.PI * 2);
+    eyeCtx.fill();
+    
+    eyeCtx.filter = "none";
+
+    eyeCtx.restore();
+}
+
+animate();
+</script>
+</body>
+</html>
