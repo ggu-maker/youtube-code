@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captain America Shield</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #2a2d34 0%, #0a0a0c 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 40px;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 15px 35px;
+            border-radius: 30px;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 1.4rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-weight: 700;
+            background: linear-gradient(90deg, #fff, #aaa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: #ccc;
+        }
+
+        .key {
+            display: inline-block;
+            background: #fff;
+            color: #000;
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            margin: 0 4px;
+            box-shadow: 0 2px 5px rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="ui">
+        <h1>Vibranium Shield</h1>
+        <p>Move mouse to guide • Hold <span class="key">S</span> to spin • Click to throw/recall</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        const radius = 200; // Size of the shield
+
+        // Function to create an offscreen texture for the shield base
+        // This gives us the high-detail brushed metal and scratches without recalculating every frame
+        function createShieldTexture(r) {
+            const texCanvas = document.createElement('canvas');
+            texCanvas.width = r * 2;
+            texCanvas.height = r * 2;
+            const tCtx = texCanvas.getContext('2d');
+            
+            tCtx.translate(r, r); // Center coordinate system
+            
+            // Helper to draw filled rings
+            function drawRing(radius, color) {
+                tCtx.beginPath();
+                tCtx.arc(0, 0, radius, 0, Math.PI * 2);
+                tCtx.fillStyle = color;
+                tCtx.fill();
+            }
+
+            // Base colors matching the reference image closely
+            drawRing(r, '#9e141a');         // Outer Red
+            drawRing(r * 0.8, '#a2a5a8');   // Silver
+            drawRing(r * 0.6, '#9e141a');   // Inner Red
+            drawRing(r * 0.4, '#132c5e');   // Blue Center
+            
+            // Apply brushed metal texture (concentric lines)
+            tCtx.lineWidth = 1;
+            for (let i = r; i > r * 0.4; i -= 1.5) {
+                tCtx.strokeStyle = `rgba(0, 0, 0, ${Math.random() * 0.15})`;
+                tCtx.beginPath();
+                tCtx.arc(0, 0, i, 0, Math.PI * 2);
+                tCtx.stroke();
+                
+                tCtx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.1})`;
+                tCtx.beginPath();
+                tCtx.arc(0, 0, i, 0, Math.PI * 2);
+                tCtx.stroke();
+            }
+
+            // Radial scratches for battle-worn realism
+            for(let i = 0; i < 400; i++) {
+                let angle = Math.random() * Math.PI * 2;
+                let startR = Math.random() * r;
+                let endR = startR + Math.random() * 20;
+                tCtx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.2})`;
+                tCtx.lineWidth = Math.random();
+                tCtx.beginPath();
+                tCtx.arc(0, 0, startR, angle, angle + Math.random() * 0.05);
+                tCtx.stroke();
+            }
+
+            // Draw 3D Beveled Star
+            let spikes = 5;
+            let rot = Math.PI / 2 * 3; // Start pointing straight up
+            let step = Math.PI / spikes;
+            let outerRadius = r * 0.38;
+            let innerRadius = r * 0.15;
+
+            let points = [];
+            for (let i = 0; i < spikes; i++) {
+                points.push({ x: Math.cos(rot) * outerRadius, y: Math.sin(rot) * outerRadius });
+                rot += step;
+                points.push({ x: Math.cos(rot) * innerRadius, y: Math.sin(rot) * innerRadius });
+                rot += step;
+            }
+
+            for (let i = 0; i < points.length; i++) {
+                let p1 = points[i];
+                let p2 = points[(i + 1) % points.length];
+                
+                tCtx.beginPath();
+                tCtx.moveTo(0, 0);
+                tCtx.lineTo(p1.x, p1.y);
+                tCtx.lineTo(p2.x, p2.y);
+                tCtx.closePath();
+
+                // Alternate shading to create a 3D faceted bevel effect
+                if (i % 2 === 0) {
+                    tCtx.fillStyle = '#b0b4b8'; 
+                } else {
+                    tCtx.fillStyle = '#777a7d'; 
+                }
+                tCtx.fill();
+                
+                // Edge lines for the star
+                tCtx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                tCtx.lineWidth = 0.5;
+                tCtx.stroke();
+            }
+            
+            // Add slight dark strokes between rings to separate them sharply
+            tCtx.strokeStyle = 'rgba(0,0,0,0.4)';
+            tCtx.lineWidth = 1.5;
+            tCtx.beginPath(); tCtx.arc(0, 0, r * 0.8, 0, Math.PI * 2); tCtx.stroke();
+            tCtx.beginPath(); tCtx.arc(0, 0, r * 0.6, 0, Math.PI * 2); tCtx.stroke();
+            tCtx.beginPath(); tCtx.arc(0, 0, r * 0.4, 0, Math.PI * 2); tCtx.stroke();
+
+            return texCanvas;
+        }
+
+        // Generate the texture once
+        const shieldTexture = createShieldTexture(radius);
+
+        // Function to draw fixed environmental lighting over the spinning shield
+        function drawLighting(r) {
+            ctx.save();
+            
+            // Conic gradient creates the signature diagonal metallic reflections
+            let conic;
+            if (ctx.createConicGradient) {
+                conic = ctx.createConicGradient(Math.PI / 4, 0, 0);
+                conic.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+                conic.addColorStop(0.15, 'rgba(255, 255, 255, 0.7)'); // Top Right Highlight
+                conic.addColorStop(0.3, 'rgba(255, 255, 255, 0)');
+                conic.addColorStop(0.4, 'rgba(0, 0, 0, 0.1)');
+                conic.addColorStop(0.5, 'rgba(0, 0, 0, 0.6)'); // Bottom Left Shadow
+                conic.addColorStop(0.6, 'rgba(0, 0, 0, 0.1)');
+                conic.addColorStop(0.7, 'rgba(255, 255, 255, 0)');
+                conic.addColorStop(0.85, 'rgba(255, 255, 255, 0.6)');
+                conic.addColorStop(1, 'rgba(255, 255, 255, 0.1)');
+                
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.beginPath();
+                ctx.arc(0, 0, r, 0, Math.PI * 2);
+                ctx.fillStyle = conic;
+                ctx.fill();
+            }
+            
+            // Radial gradient creates a spherical volume (darker at edges, bright in center)
+            let radial = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+            radial.addColorStop(0, 'rgba(255, 255, 255, 0.25)'); // Center shine
+            radial.addColorStop(0.7, 'rgba(0, 0, 0, 0)');
+            radial.addColorStop(1, 'rgba(0, 0, 0, 0.7)'); // Deep edge shadow
+            
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fillStyle = radial;
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        // Animation and interaction state
+        let targetX = width / 2;
+        let targetY = height / 2;
+        let currentX = width / 2;
+        let currentY = height / 2;
+        
+        let rotation = 0;
+        let rotationVelocity = 0;
+        let isSpinning = false;
+        
+        // Throw mechanics state
+        let isThrown = false;
+        let velX = 0;
+        let velY = 0;
+        const mouseHistory = [];
+        
+        const particles = [];
+
+        // Interactions
+        window.addEventListener('mousemove', (e) => {
+            targetX = e.clientX;
+            targetY = e.clientY;
+            
+            // Store history for throw momentum calculation
+            mouseHistory.push({x: targetX, y: targetY, time: Date.now()});
+            if (mouseHistory.length > 10) mouseHistory.shift();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 's') {
+                isSpinning = true;
+                document.getElementById('ui').style.opacity = '0.3';
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key.toLowerCase() === 's') {
+                isSpinning = false;
+                document.getElementById('ui').style.opacity = '1';
+            }
+        });
+
+        // Click to throw or recall
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Left click
+                if (isThrown) {
+                    // Recall
+                    isThrown = false;
+                    isSpinning = true; 
+                    setTimeout(() => isSpinning = false, 1500); // Spin slightly after recall
+                } else {
+                    // Throw
+                    isThrown = true;
+                    
+                    if (mouseHistory.length > 2) {
+                        let newest = mouseHistory[mouseHistory.length - 1];
+                        let oldest = mouseHistory[0];
+                        let dt = Math.max(16, newest.time - oldest.time);
+                        velX = ((newest.x - oldest.x) / dt) * 25; // Increase multiplier for more power
+                        velY = ((newest.y - oldest.y) / dt) * 25;
+                        
+                        let speed = Math.sqrt(velX*velX + velY*velY);
+                        if (speed > 55) { // Cap speed
+                            velX = (velX/speed)*55;
+                            velY = (velY/speed)*55;
+                        }
+                        
+                        // Default toss if relatively stationary
+                        if (speed < 10) {
+                            velX = (Math.random() - 0.5) * 50;
+                            velY = -40; // Toss slightly upwards
+                        }
+                    } else {
+                        velX = 40; velY = -40;
+                    }
+                }
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+        
+        // Mobile touch support
+        window.addEventListener('touchmove', (e) => {
+            targetX = e.touches[0].clientX;
+            targetY = e.touches[0].clientY;
+        });
+        window.addEventListener('touchstart', (e) => {
+            targetX = e.touches[0].clientX;
+            targetY = e.touches[0].clientY;
+            isSpinning = true;
+            document.getElementById('ui').style.opacity = '0.3';
+        });
+        window.addEventListener('touchend', () => {
+            isSpinning = false;
+            document.getElementById('ui').style.opacity = '1';
+        });
+
+        // Generate a burst of sparks on impact
+        function createImpactSparks(x, y, normalX, normalY) {
+            let count = 25;
+            for (let i = 0; i < count; i++) {
+                let speed = 8 + Math.random() * 20;
+                // Bounce them outward along the normal vector
+                let angle = Math.atan2(normalY, normalX) + (Math.random() - 0.5) * Math.PI;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1.5,
+                    color: Math.random() > 0.5 ? '#ff9800' : '#ffffff' // Orange impact sparks
+                });
+            }
+        }
+
+        // Particle system for sparks when spinning fast
+        function createSparks() {
+            if (rotationVelocity > 0.15) {
+                let count = Math.floor(rotationVelocity * 6);
+                for (let i = 0; i < count; i++) {
+                    let angle = Math.random() * Math.PI * 2;
+                    let sparkRadius = radius - 5;
+                    let px = currentX + Math.cos(angle) * sparkRadius;
+                    let py = currentY + Math.sin(angle) * sparkRadius;
+                    
+                    let speed = rotationVelocity * 18 + Math.random() * 5;
+                    // Spark flies outward tangentially
+                    let vx = Math.cos(angle + Math.PI/2) * speed + (Math.random() - 0.5) * 3;
+                    let vy = Math.sin(angle + Math.PI/2) * speed + (Math.random() - 0.5) * 3;
+                    
+                    particles.push({
+                        x: px,
+                        y: py,
+                        vx: vx,
+                        vy: vy,
+                        life: 1,
+                        color: Math.random() > 0.6 ? '#64b5f6' : '#ffffff' // Mix of blue and white sparks
+                    });
+                }
+            }
+        }
+
+        function updateAndDrawParticles() {
+            ctx.globalCompositeOperation = 'screen';
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.035; // fade out speed
+                
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+                
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.life * 2.5, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        // Main Animation Loop
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+
+            // Follow-cursor physics and Throw mechanics
+            let dx = 0, dy = 0;
+            
+            if (!isThrown) {
+                dx = targetX - currentX;
+                dy = targetY - currentY;
+                currentX += dx * 0.1;
+                currentY += dy * 0.1;
+            } else {
+                currentX += velX;
+                currentY += velY;
+                
+                let bounced = false;
+                let nx = 0, ny = 0;
+                let bouncePointX = currentX;
+                let bouncePointY = currentY;
+
+                // Wall collisions
+                if (currentX + radius > width) {
+                    currentX = width - radius;
+                    velX *= -1;
+                    bounced = true; nx = -1;
+                    bouncePointX = width;
+                } else if (currentX - radius < 0) {
+                    currentX = radius;
+                    velX *= -1;
+                    bounced = true; nx = 1;
+                    bouncePointX = 0;
+                }
+                
+                if (currentY + radius > height) {
+                    currentY = height - radius;
+                    velY *= -1;
+                    bounced = true; ny = -1;
+                    bouncePointY = height;
+                } else if (currentY - radius < 0) {
+                    currentY = radius;
+                    velY *= -1;
+                    bounced = true; ny = 1;
+                    bouncePointY = 0;
+                }
+
+                if (bounced) {
+                    createImpactSparks(bouncePointX, bouncePointY, nx, ny);
+                    // Add slight velocity loss on bounce for realism
+                    velX *= 0.95;
+                    velY *= 0.95;
+                }
+                
+                // Air resistance
+                velX *= 0.998;
+                velY *= 0.998;
+                
+                dx = -velX * 3; // For shadow tilting calculation
+                dy = -velY * 3;
+            }
+
+            // Spin physics
+            if (isSpinning || isThrown) {
+                rotationVelocity += 0.015;
+                if (rotationVelocity > 0.65) rotationVelocity = 0.65; // Max speed
+            } else {
+                rotationVelocity *= 0.95; // Friction slows it down
+                if (rotationVelocity < 0.001) rotationVelocity = 0;
+            }
+            rotation += rotationVelocity;
+
+            // Generate and draw effects
+            createSparks();
+            updateAndDrawParticles();
+
+            // Kinetic Energy Aura (Blue glow when spinning fast)
+            if (rotationVelocity > 0.1) {
+                ctx.save();
+                ctx.translate(currentX, currentY);
+                let auraStrength = (rotationVelocity / 0.65); // normalized 0 to 1
+                let glowRadius = radius + 10 + (auraStrength * 40);
+                
+                let aura = ctx.createRadialGradient(0, 0, radius, 0, 0, glowRadius);
+                aura.addColorStop(0, `rgba(66, 165, 245, ${auraStrength * 0.6})`);
+                aura.addColorStop(1, 'rgba(66, 165, 245, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+                ctx.fillStyle = aura;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // Draw the Main Shield
+            ctx.save();
+            ctx.translate(currentX, currentY);
+            
+            // Dynamic Drop Shadow (moves slightly opposite to the movement direction for a 3D float effect)
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+            ctx.shadowBlur = 50;
+            ctx.shadowOffsetX = 15 - (dx * 0.06);
+            ctx.shadowOffsetY = 25 - (dy * 0.06);
+            
+            // Render Rotating Base Texture
+            ctx.save();
+            ctx.rotate(rotation);
+            ctx.drawImage(shieldTexture, -radius, -radius);
+            ctx.restore();
+
+            // Clear shadow before drawing the lighting overlay
+            ctx.shadowColor = 'transparent';
+
+            // Apply Fixed Environmental Lighting
+            drawLighting(radius);
+
+            ctx.restore();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
