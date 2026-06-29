@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Straw Hat Pirates Jolly Roger Transformation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0d0d0d;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            background: radial-gradient(circle, #2a2a2a 0%, #000000 70%);
+            box-shadow: 0 0 50px rgba(0, 0, 0, 0.8), inset 0 0 100px rgba(0,0,0,1);
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+        .ui-layer {
+            position: absolute;
+            top: 10%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
+        h1 {
+            color: #fff;
+            margin: 0;
+            font-size: 2.5rem;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5), 0 0 20px rgba(255,0,0,0.8);
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+        .instruction {
+            color: #aaa;
+            font-size: 1.2rem;
+            margin-top: 10px;
+            letter-spacing: 2px;
+            animation: pulse 2s infinite;
+            transition: opacity 0.5s;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+        .active-title {
+            opacity: 1 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="flagCanvas"></canvas>
+        <div class="ui-layer">
+            <h1 id="titleText">Straw Hat Pirates</h1>
+            <div class="instruction" id="instructionText">Click to Transform</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('flagCanvas');
+        const ctx = canvas.getContext('2d');
+        const titleText = document.getElementById('titleText');
+        const instructionText = document.getElementById('instructionText');
+
+        let width, height, cx, cy;
+        let particles = [];
+        let shockwaves = [];
+        let fireParticles = [];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            cx = width / 2;
+            cy = height / 2 + 50;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // State variables
+        let progress = 0; // 0 = Normal Skeleton, 1 = Jolly Roger
+        let targetProgress = 0;
+        let transforming = false;
+        let hatDropVelocity = 0;
+        let hatY = -500;
+        let hatBouncing = false;
+        
+        let transformCompleteTime = 0;
+        let punchActive = false;
+        let punchProgress = 0;
+
+        // Easing helper
+        function lerp(start, end, t) {
+            return start * (1 - t) + end * t;
+        }
+
+        // Elastic easing for bone appearance
+        function easeOutElastic(x) {
+            const c4 = (2 * Math.PI) / 3;
+            return x === 0 ? 0 : x === 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
+        }
+
+        class Particle {
+            constructor(x, y, isRed) {
+                this.x = x;
+                this.y = y;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 20 + 5;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.02 + 0.015;
+                this.color = isRed ? '#e62429' : '#000000';
+                this.size = Math.random() * 15 + 5;
+                this.isRed = isRed;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.95; // friction
+                this.vy *= 0.95;
+                this.life -= this.decay;
+                this.size *= 0.96;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
+                ctx.fill();
+                if (this.isRed) {
+                    ctx.shadowColor = '#ff4d4d';
+                    ctx.shadowBlur = 15;
+                    ctx.fill(); // double fill for intensity
+                }
+                ctx.restore();
+            }
+        }
+
+        class FireParticle {
+            constructor(x, y, vx, vy) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.01;
+                this.size = Math.random() * 50 + 20;
+                // Fire colors: Yellow, Orange, Red
+                const colors = ['#ffe100', '#ff8c00', '#e62429'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                this.size *= 0.96;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 20;
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Shockwave {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.life = 1.0;
+                this.thickness = 10;
+            }
+            update() {
+                this.radius += 20;
+                this.life -= 0.04;
+                this.thickness *= 0.9;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.strokeStyle = `rgba(255, 255, 255, ${this.life})`;
+                ctx.lineWidth = this.thickness;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        function createTransformationEffect() {
+            // Haki burst
+            for (let i = 0; i < 100; i++) {
+                particles.push(new Particle(cx, cy, Math.random() > 0.4));
+            }
+            shockwaves.push(new Shockwave(cx, cy));
+        }
+
+        function drawBone(ctx, x, y, length, angle, width, alpha, scale) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.scale(scale, scale);
+            ctx.globalAlpha = alpha;
+            
+            const hl = length / 2 - width * 0.8; 
+            const hw = width / 2;
+            const er = width * 0.9;
+            const outline = 12;
+
+            function drawBoneShapes(ctx, expand) {
+                ctx.fillRect(-hl - expand, -hw - expand, hl*2 + expand*2, hw*2 + expand*2);
+                ctx.beginPath();
+                ctx.arc(-hl, -hw, er + expand, 0, Math.PI*2);
+                ctx.arc(-hl, hw, er + expand, 0, Math.PI*2);
+                ctx.arc(hl, -hw, er + expand, 0, Math.PI*2);
+                ctx.arc(hl, hw, er + expand, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = '#000';
+            drawBoneShapes(ctx, outline/2);
+            
+            ctx.fillStyle = '#fff';
+            drawBoneShapes(ctx, 0);
+            
+            ctx.restore();
+        }
+
+        function drawStrawHat(ctx, x, y, scale, alpha) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            ctx.globalAlpha = alpha;
+            
+            ctx.lineJoin = 'round';
+            
+            // Brim
+            ctx.fillStyle = '#e5a83a';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 200, 45, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.lineWidth = 12;
+            ctx.strokeStyle = '#000';
+            ctx.stroke();
+
+            // Dome Path
+            ctx.beginPath();
+            ctx.arc(0, -15, 100, Math.PI, Math.PI * 2);
+            ctx.closePath();
+            
+            // Dome Fill
+            ctx.fillStyle = '#e5a83a';
+            ctx.fill();
+            
+            // Ribbon Fill
+            ctx.save();
+            ctx.clip();
+            ctx.fillStyle = '#b72228';
+            ctx.fillRect(-110, -45, 220, 30);
+            
+            // Ribbon Top Outline
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(-110, -45);
+            ctx.lineTo(110, -45);
+            ctx.stroke();
+            ctx.restore();
+            
+            // Dome Outline
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.arc(0, -15, 100, Math.PI, Math.PI * 2);
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawSkull(ctx, x, y, scale, prog) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            
+            // Skull Base (Cranium)
+            // Interpolate shape from realistic human skull to anime circular skull
+            ctx.fillStyle = '#f5f5f5';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 5;
+            
+            ctx.beginPath();
+            // Start from jaw bottom
+            const jawY = lerp(90, 110, prog);
+            const jawWidth = lerp(60, 95, prog);
+            
+            // Outline path
+            ctx.arc(0, -25, 100, 0.8, Math.PI - 0.8, true); // Top round part
+            // Cheekbones
+            const cheekX = lerp(75, 95, prog);
+            const cheekY = lerp(40, 50, prog);
+            ctx.quadraticCurveTo(-cheekX, cheekY, -jawWidth/2, jawY - 40);
+            ctx.lineTo(-jawWidth/2, jawY);
+            ctx.lineTo(jawWidth/2, jawY);
+            ctx.lineTo(jawWidth/2, jawY - 40);
+            ctx.quadraticCurveTo(cheekX, cheekY, Math.cos(0.8)*100, Math.sin(0.8)*100 - 25);
+            ctx.closePath();
+            
+            ctx.fill();
+            ctx.stroke();
+
+            // Eyes
+            const eyeSizeX = lerp(22, 38, prog);
+            const eyeSizeY = lerp(26, 38, prog); // Becomes perfectly circular
+            const eyeSpacing = lerp(35, 42, prog);
+            const eyeY = lerp(-10, -5, prog);
+            
+            ctx.fillStyle = '#000';
+            // Left eye
+            ctx.beginPath();
+            ctx.ellipse(-eyeSpacing, eyeY, eyeSizeX, eyeSizeY, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Right eye
+            ctx.beginPath();
+            ctx.ellipse(eyeSpacing, eyeY, eyeSizeX, eyeSizeY, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Angry brow effect for normal skull (diminishes as it turns to jolly roger)
+            if (prog < 1) {
+                ctx.strokeStyle = '#f5f5f5'; // Blend with skull color
+                ctx.lineWidth = 10;
+                ctx.beginPath();
+                ctx.moveTo(-eyeSpacing - 30, eyeY - 25 + prog*10);
+                ctx.lineTo(-eyeSpacing + 10, eyeY - 10 - prog*10);
+                ctx.moveTo(eyeSpacing + 30, eyeY - 25 + prog*10);
+                ctx.lineTo(eyeSpacing - 10, eyeY - 10 - prog*10);
+                // Draw skull color over eyes to flatten the top
+                ctx.stroke();
+            }
+
+            // Nose
+            const noseY = lerp(35, 40, prog);
+            ctx.beginPath();
+            if (prog < 0.5) {
+                // Realistic triangular cavity
+                const p = prog * 2; // 0 to 1
+                ctx.moveTo(0, noseY - 10);
+                ctx.lineTo(-10 + p*10, noseY + 15 - p*15);
+                ctx.lineTo(10 - p*10, noseY + 15 - p*15);
+            } else {
+                // Circular nose hole for Jolly Roger
+                const p = (prog - 0.5) * 2; // 0 to 1
+                ctx.arc(0, noseY + 5, 12 * p, 0, Math.PI * 2);
+            }
+            ctx.fill();
+
+            // Teeth / Jaw
+            const teethY = lerp(70, 85, prog);
+            const teethHeight = lerp(20, 25, prog);
+            
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 4;
+            
+            // Horizontal tooth line
+            ctx.beginPath();
+            ctx.moveTo(-jawWidth/2 + 2, teethY);
+            ctx.lineTo(jawWidth/2 - 2, teethY);
+            ctx.stroke();
+
+            // Vertical tooth lines
+            // Normal skull has more organic teeth, JR has grid
+            const numLines = Math.floor(lerp(5, 3, prog)); 
+            const spacing = jawWidth / (numLines + 1);
+            
+            for(let i=1; i<=numLines; i++) {
+                ctx.beginPath();
+                const tx = -jawWidth/2 + i*spacing;
+                ctx.moveTo(tx, teethY - teethHeight/2 + 2);
+                ctx.lineTo(tx, teethY + teethHeight/2 - 2);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // Helper for roundRect (standard in modern canvas, polyfilled here for safety)
+        function drawRoundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }
+
+        function drawPunch(ctx, x, y, scale) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            
+            // Draw Haki Fist
+            ctx.fillStyle = '#222'; // Dark Grey/Black Haki
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 6;
+            
+            // Thumb
+            ctx.beginPath();
+            ctx.ellipse(-120, 40, 40, 70, -Math.PI/4, 0, Math.PI*2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Fingers (4 knuckles)
+            for(let i=0; i<4; i++) {
+                const px = -75 + i * 50;
+                const py = (i === 1 || i === 2) ? -20 : 0;
+                
+                // Base finger
+                drawRoundRect(ctx, px - 25, py - 60, 50, 140, 25);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Reflection (Haki shine)
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                drawRoundRect(ctx, px - 15, py - 40, 15, 80, 7);
+                ctx.fill();
+                ctx.fillStyle = '#222';
+            }
+            
+            ctx.restore();
+        }
+
+        function updateLogic() {
+            // Smooth progress interpolation
+            if (progress !== targetProgress) {
+                const diff = targetProgress - progress;
+                progress += diff * 0.04;
+                if (Math.abs(diff) < 0.005) {
+                    progress = targetProgress;
+                    transforming = false;
+                }
+            }
+
+            // Punch sequence timer
+            if (progress === 1 && targetProgress === 1) {
+                if (transformCompleteTime === 0) {
+                    transformCompleteTime = Date.now();
+                } else if (Date.now() - transformCompleteTime > 3000 && !punchActive) {
+                    punchActive = true;
+                    // Initial fire burst
+                    for(let i=0; i<100; i++) {
+                        fireParticles.push(new FireParticle(cx, cy, (Math.random()-0.5)*40, (Math.random()-0.5)*40));
+                    }
+                    shockwaves.push(new Shockwave(cx, cy));
+                }
+            } else {
+                transformCompleteTime = 0;
+                punchActive = false;
+                punchProgress = 0;
+            }
+
+            // Update punch animation
+            if (punchActive) {
+                if (punchProgress < 1) {
+                    punchProgress += 0.02; // Animates over ~50 frames
+                }
+            }
+
+            // Hat physics
+            if (targetProgress === 1) {
+                if (hatY < -90) { // Target Y offset is around -90 on the skull
+                    hatDropVelocity += 2; // Gravity
+                    hatY += hatDropVelocity;
+                } else if (!hatBouncing) {
+                    hatY = -90;
+                    hatDropVelocity *= -0.4; // Bounce
+                    if (Math.abs(hatDropVelocity) < 1) {
+                        hatBouncing = true;
+                        hatDropVelocity = 0;
+                    }
+                }
+            } else {
+                // Return hat upwards
+                if (hatY > -500) {
+                    hatY -= 15;
+                    hatBouncing = false;
+                }
+            }
+            
+            // Particles
+            particles.forEach(p => p.update());
+            particles = particles.filter(p => p.life > 0);
+            
+            fireParticles.forEach(p => p.update());
+            fireParticles = fireParticles.filter(p => p.life > 0);
+            
+            shockwaves.forEach(s => s.update());
+            shockwaves = shockwaves.filter(s => s.life > 0);
+        }
+
+        function drawScene() {
+            updateLogic();
+            
+            ctx.clearRect(0, 0, width, height);
+
+            const scale = Math.min(width, height) / 800;
+
+            let shakeX = 0;
+            let shakeY = 0;
+
+            // Camera shake logic
+            if (punchActive && punchProgress > 0.2) {
+                const shakeIntensity = 20 * (1 - punchProgress) + 5;
+                shakeX = (Math.random() - 0.5) * shakeIntensity;
+                shakeY = (Math.random() - 0.5) * shakeIntensity;
+            } else if (Math.abs(targetProgress - progress) > 0.01 && targetProgress === 1 && hatY < -90) {
+                shakeX = (Math.random() - 0.5) * 5;
+                shakeY = (Math.random() - 0.5) * 5;
+            }
+
+            // Fade background when punching
+            const bgAlpha = punchActive ? lerp(1, 0, (punchProgress - 0.2) / 0.8) : 1;
+
+            if (bgAlpha > 0) {
+                ctx.save();
+                ctx.globalAlpha = bgAlpha;
+                
+                // Draw Bones
+                const boneAnimProg = targetProgress === 1 ? easeOutElastic(progress) : progress;
+                const boneScale = lerp(0, 1.2, boneAnimProg);
+                const boneAlpha = Math.min(1, boneAnimProg * 2);
+                
+                if (boneAlpha > 0.01) {
+                    drawBone(ctx, cx, cy + 30*scale, 650, Math.PI / 4, 35, boneAlpha, boneScale * scale);
+                    drawBone(ctx, cx, cy + 30*scale, 650, -Math.PI / 4, 35, boneAlpha, boneScale * scale);
+                }
+
+                // Draw Skull
+                drawSkull(ctx, cx + shakeX, cy + shakeY, scale * 1.2, progress);
+
+                // Draw Hat
+                if (hatY > -500) {
+                    const hatAlpha = lerp(0, 1, Math.min(1, (hatY + 500) / 200));
+                    drawStrawHat(ctx, cx + shakeX, cy + hatY * scale * 1.2 + shakeY, scale * 1.2, hatAlpha);
+                }
+                
+                ctx.restore();
+            }
+
+            // Draw Shockwaves
+            shockwaves.forEach(s => s.draw(ctx));
+
+            // Draw Fire Particles (behind punch)
+            fireParticles.forEach(p => p.draw(ctx));
+
+            // Draw Punch Animation
+            if (punchActive) {
+                let pScale = 0;
+                if (punchProgress < 0.2) {
+                    // Anticipation (pulls back slightly)
+                    pScale = lerp(0, 0.5, punchProgress / 0.2); 
+                } else {
+                    // Explosive forward slam
+                    const t = (punchProgress - 0.2) / 0.8;
+                    pScale = lerp(0.5, 8, Math.pow(t, 2)); // Scales up massively to cover screen
+                }
+                
+                if (pScale > 0) {
+                     drawPunch(ctx, cx + shakeX, cy + shakeY, pScale * scale);
+                     
+                     // Spawn intense fire continuously around the scaling fist
+                     for(let i=0; i<8; i++) {
+                         const angle = Math.random() * Math.PI * 2;
+                         const dist = Math.random() * 200 * pScale * scale;
+                         fireParticles.push(new FireParticle(
+                             cx + shakeX + Math.cos(angle)*dist, 
+                             cy + shakeY + Math.sin(angle)*dist, 
+                             (Math.random()-0.5)*15, 
+                             (Math.random()-0.5)*15
+                         ));
+                     }
+                }
+            }
+
+            // Draw Particles (Haki effect in front)
+            particles.forEach(p => p.draw(ctx));
+
+            requestAnimationFrame(drawScene);
+        }
+
+        canvas.addEventListener('click', () => {
+            if (transforming) return;
+            
+            if (targetProgress === 0) {
+                targetProgress = 1;
+                transforming = true;
+                hatY = -500;
+                hatDropVelocity = 0;
+                hatBouncing = false;
+                transformCompleteTime = 0; // reset timer
+                punchActive = false;
+                punchProgress = 0;
+                fireParticles = []; // clear fire
+                createTransformationEffect();
+                instructionText.style.opacity = 0;
+                titleText.classList.add('active-title');
+            } else {
+                targetProgress = 0;
+                transforming = true;
+                titleText.classList.remove('active-title');
+            }
+        });
+
+        // Start animation loop
+        drawScene();
+    </script>
+</body>
+</html>
