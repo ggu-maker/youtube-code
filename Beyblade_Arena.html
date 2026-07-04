@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Storm Spinner — Beyblade Arena</title>
+<style>
+  :root{
+    --bg-deep:#010205;
+    --bg-mid:#050a14;
+    --rim-blue:#00eeff;
+    --hot-pink:#ff22aa;
+    --gold:#ffd23f;
+    --steel:#e8ecf2;
+  }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:radial-gradient(ellipse at 50% 30%, var(--bg-mid), var(--bg-deep) 70%);
+    overflow:hidden;
+    font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  }
+  #canvas-wrap{ position:fixed; inset:0; }
+  canvas{ display:block; }
+
+  #hud{
+    position:fixed; top:0; left:0; right:0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:22px 30px; pointer-events:none;
+    z-index:10;
+  }
+  #title{
+    color:var(--steel);
+    letter-spacing:4px;
+    font-size:13px;
+    text-transform:uppercase;
+    opacity:0.85;
+  }
+  #title b{
+    display:block;
+    font-size:26px;
+    letter-spacing:2px;
+    background:linear-gradient(90deg, var(--rim-blue), #8a2be2 60%, var(--hot-pink));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    margin-top:4px;
+  }
+  #rpm{
+    text-align:right;
+    color:var(--gold);
+    font-size:13px;
+    letter-spacing:2px;
+  }
+  #rpm b{
+    display:block;
+    font-size:30px;
+    color:var(--steel);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #controls{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    display:flex; gap:12px; z-index:10;
+  }
+  button{
+    background:linear-gradient(180deg, #111a2a, #050a12);
+    border:1px solid rgba(0,238,255,0.35);
+    color:var(--steel);
+    padding:10px 18px;
+    border-radius:999px;
+    font-size:12px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    cursor:pointer;
+    box-shadow:0 0 18px rgba(0,238,255,0.15), inset 0 0 10px rgba(255,255,255,0.03);
+    transition: all 0.15s ease;
+  }
+  button:hover{
+    border-color:var(--rim-blue);
+    box-shadow:0 0 24px rgba(0,238,255,0.4), inset 0 0 10px rgba(255,255,255,0.06);
+    transform:translateY(-1px);
+  }
+  button:active{ transform:translateY(1px) scale(0.97); }
+  #launchBtn{
+    background:linear-gradient(180deg, #300a1a, #15020a);
+    border-color:rgba(255,34,170,0.4);
+  }
+  #launchBtn:hover{
+    border-color:var(--hot-pink);
+    box-shadow:0 0 24px rgba(255,34,170,0.45);
+  }
+
+  #hint{
+    position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+    color:rgba(232,236,242,0.4);
+    font-size:11px; letter-spacing:1px;
+    z-index:10; pointer-events:none;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="title">Beyblade Simulator<b>STORM DRAGOON</b></div>
+  <div id="rpm">SPIN RATE<b id="rpmVal">0</b></div>
+</div>
+
+<div id="canvas-wrap"></div>
+
+<div id="hint">Drag to orbit &nbsp;•&nbsp; Scroll to zoom &nbsp;•&nbsp; Click LAUNCH to unleash a shockwave clash</div>
+<div id="controls">
+  <button id="launchBtn">Launch ⚡</button>
+  <button id="speedBtn">Boost Spin</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const wrap = document.getElementById('canvas-wrap');
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x010205, 0.035);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 200);
+  camera.position.set(0, 6, 7.5); 
+  camera.lookAt(0,0.5,0);
+
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  wrap.appendChild(renderer.domElement);
+
+  // ---------- Atmospheric Neon Lighting ----------
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x111122, 0.4);
+  scene.add(hemi);
+
+  const key = new THREE.SpotLight(0xffffff, 1.5, 50, Math.PI/4, 0.5, 1.0);
+  key.position.set(4, 12, 6);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  scene.add(key);
+
+  const rimPink = new THREE.PointLight(0xff22aa, 3.5, 30);
+  rimPink.position.set(-2, 4, -7);
+  scene.add(rimPink);
+  
+  const rimCyan = new THREE.PointLight(0x00eeff, 3.0, 30);
+  rimCyan.position.set(7, 3, 4);
+  scene.add(rimCyan);
+
+  // ---------- Arena Floor ----------
+  const floorGeo = new THREE.CircleGeometry(15, 96);
+  const floorMat = new THREE.MeshPhongMaterial({
+    color:0x010205, specular:0x223344, shininess: 120
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI/2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  for(let r=2.5; r<=12.5; r+=2.5){
+    const ringGeo = new THREE.RingGeometry(r-0.03, r, 96);
+    const ringMat = new THREE.MeshBasicMaterial({color:0x00eeff, transparent:true, opacity:0.1, side:THREE.DoubleSide});
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI/2;
+    ring.position.y = 0.01;
+    scene.add(ring);
+  }
+
+  // ---------- Build the Dark Metal Dragoon V2 ----------
+  const bey = new THREE.Group();
+  scene.add(bey);
+
+  // Advanced High-Contrast Materials
+  const matSteel = new THREE.MeshPhongMaterial({color: 0x111316, specular: 0x8899aa, shininess: 120}); // Black Metal Wings
+  const matCore = new THREE.MeshPhongMaterial({color: 0x8a95a5, specular: 0xffffff, shininess: 120});  // Bright Silver Inner Frame
+  const matArmor = new THREE.MeshPhongMaterial({color: 0x22252a, specular: 0x999999, shininess: 80});  // Medium Grey Armor Details
+  const matDark = new THREE.MeshPhongMaterial({color: 0x050608, specular: 0x222222, shininess: 40});
+
+  // Dynamic High-Res Textures
+  function createStickerTexture(isRed) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = isRed ? '#ff1111' : '#1144ff';
+    ctx.fillRect(0, 0, 512, 512);
+    
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 15;
+    ctx.strokeRect(10, 10, 492, 492);
+    
+    ctx.save();
+    ctx.translate(256, 256);
+    ctx.rotate(-Math.PI / 4); 
+    
+    if (isRed) {
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '900 80px "Arial Black", sans-serif';
+      ctx.shadowColor = 'black'; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+      ctx.fillText('DRAGOON', 0, -20);
+      ctx.font = '900 40px "Arial Black", sans-serif';
+      ctx.fillText('MG', 140, -20);
+    } else {
+      ctx.fillStyle = '#ffff00'; 
+      ctx.shadowColor = 'black'; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4;
+      ctx.beginPath();
+      ctx.moveTo(-60, 60); ctx.lineTo(20, -10); ctx.lineTo(-20, -10);
+      ctx.lineTo(60, -80); ctx.lineTo(0, 10); ctx.lineTo(40, 10);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  function createBitChipTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = '#111'; ctx.fillRect(0,0,512,512); 
+    ctx.beginPath(); ctx.arc(256, 256, 230, 0, Math.PI*2);
+    ctx.fillStyle = '#0a591e'; ctx.fill(); 
+    
+    ctx.beginPath(); ctx.arc(256, 256, 170, 0, Math.PI*2);
+    ctx.fillStyle = '#ffcc00'; ctx.fill(); 
+    ctx.lineWidth = 14; ctx.strokeStyle = '#000'; ctx.stroke();
+    
+    ctx.translate(256, 256);
+    ctx.fillStyle = '#001133'; ctx.beginPath(); ctx.arc(0, 30, 80, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#1155ff'; ctx.beginPath();
+    ctx.moveTo(0, 30); ctx.lineTo(-100, -40); ctx.lineTo(-40, -100); 
+    ctx.lineTo(0, -30); ctx.lineTo(40, -100); ctx.lineTo(100, -40);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.moveTo(-80, 30); ctx.lineTo(-160, 60); ctx.lineTo(-120, 120); ctx.lineTo(-40, 70); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(80, 30); ctx.lineTo(160, 60); ctx.lineTo(120, 120); ctx.lineTo(40, 70); ctx.closePath(); ctx.fill(); ctx.stroke();
+    
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath(); ctx.arc(-30, -20, 14, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(30, -20, 14, 0, Math.PI*2); ctx.fill();
+
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  const matRedSticker = new THREE.MeshBasicMaterial({map: createStickerTexture(true)});
+  const matBlueSticker = new THREE.MeshBasicMaterial({map: createStickerTexture(false)});
+  const matGreenSticker = new THREE.MeshBasicMaterial({color: 0x00ff33});
+
+  // ---------- Base & Weight Disk ----------
+  const tipGeo = new THREE.CylinderGeometry(0.15, 0.02, 0.3, 32);
+  const tipMesh = new THREE.Mesh(tipGeo, matSteel);
+  tipMesh.position.y = -0.8;
+  tipMesh.castShadow = true;
+  bey.add(tipMesh);
+
+  const baseGeo = new THREE.CylinderGeometry(0.8, 0.3, 0.4, 64);
+  const baseMesh = new THREE.Mesh(baseGeo, matDark);
+  baseMesh.position.y = -0.5;
+  baseMesh.castShadow = true;
+  bey.add(baseMesh);
+
+  // Silver 10-Point "Ten Wide" Weight Disk peeking out
+  const wdShape = new THREE.Shape();
+  const wdPoints = 10;
+  for(let i=0; i<wdPoints*2; i++) {
+    const a = (i/(wdPoints*2))*Math.PI*2;
+    const r = (i%2===0) ? 1.65 : 1.35; 
+    if(i===0) wdShape.moveTo(r*Math.cos(a), r*Math.sin(a));
+    else wdShape.lineTo(r*Math.cos(a), r*Math.sin(a));
+  }
+  wdShape.closePath();
+  const wdGeo = new THREE.ExtrudeGeometry(wdShape, {depth: 0.15, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03});
+  const wd = new THREE.Mesh(wdGeo, matCore); // Silver disk!
+  wd.rotation.x = -Math.PI/2;
+  wd.position.y = -0.3; 
+  wd.castShadow = true;
+  bey.add(wd);
+
+  // ---------- Highly Detailed Attack Ring ----------
+  const attackRingGroup = new THREE.Group();
+  
+  // 1. INTRICATE SILVER INNER GEAR FRAME
+  const frameShape = new THREE.Shape();
+  frameShape.moveTo(0.95 * Math.cos(-0.15), 0.95 * Math.sin(-0.15));
+  for(let i=0; i<8; i++) {
+      const angle = (i/8) * Math.PI * 2;
+      const nextAngle = ((i+1)/8) * Math.PI * 2;
+      
+      frameShape.lineTo(0.95 * Math.cos(angle + 0.15), 0.95 * Math.sin(angle + 0.15));
+      const midAngle = (angle + nextAngle) / 2;
+      frameShape.lineTo(0.7 * Math.cos(midAngle), 0.7 * Math.sin(midAngle)); // Deep cutouts
+      
+      if(i < 7) {
+          frameShape.lineTo(0.95 * Math.cos(nextAngle - 0.15), 0.95 * Math.sin(nextAngle - 0.15));
+      }
+  }
+  frameShape.lineTo(0.95 * Math.cos(-0.15), 0.95 * Math.sin(-0.15));
+  
+  const frameMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(frameShape, {depth: 0.1, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02}), matCore);
+  frameMesh.rotation.x = -Math.PI/2;
+  frameMesh.position.y = -0.05; 
+  frameMesh.castShadow = true;
+  attackRingGroup.add(frameMesh);
+
+  // Solid block underneath to prevent see-through
+  const coreBaseGeo = new THREE.CylinderGeometry(0.85, 0.85, 0.15, 64);
+  const coreBaseMesh = new THREE.Mesh(coreBaseGeo, matDark);
+  coreBaseMesh.position.y = -0.125;
+  attackRingGroup.add(coreBaseMesh);
+
+  // Bolts on the Silver Gear Frame
+  for(let i=0; i<8; i++) {
+      const angle = (i/8) * Math.PI * 2;
+      const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 12), matDark);
+      bolt.position.set(0.85 * Math.cos(angle), 0.08, 0.85 * Math.sin(angle));
+      attackRingGroup.add(bolt);
+      
+      // Cooling indentations in the valleys
+      const nextAngle = ((i+1)/8) * Math.PI * 2;
+      const midAngle = (angle + nextAngle) / 2;
+      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 16), matDark);
+      hole.position.set(0.78 * Math.cos(midAngle), 0.071, 0.78 * Math.sin(midAngle));
+      attackRingGroup.add(hole);
+  }
+
+  // 2. GLOWING ENERGY VENTS (Filling the empty gaps)
+  for(let i=0; i<4; i++) {
+      const angle = (i/4) * Math.PI * 2 + Math.PI/4;
+      const ventGroup = new THREE.Group();
+      ventGroup.position.set(0.75 * Math.cos(angle), -0.05, 0.75 * Math.sin(angle));
+      ventGroup.lookAt(2.0 * Math.cos(angle), -0.05, 2.0 * Math.sin(angle)); // Point radially outward
+      
+      const ventBox = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.25), matArmor);
+      ventBox.position.y = 0.09; 
+      ventGroup.add(ventBox);
+      
+      const ventSlit = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.04, 0.05), new THREE.MeshPhongMaterial({color: 0xff22aa, emissive: 0x880044}));
+      ventSlit.position.set(0, 0.09, 0.13); // Flush with front
+      ventGroup.add(ventSlit);
+      
+      attackRingGroup.add(ventGroup);
+  }
+
+  // 3. BLACK METAL WINGS (Sharp & Aggressive)
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0.7, 0.0);
+  wingShape.lineTo(1.0, -0.3);
+  wingShape.lineTo(1.2, -0.1); 
+  wingShape.lineTo(1.1, 0.1); 
+  wingShape.lineTo(1.4, 0.1); 
+  wingShape.quadraticCurveTo(1.7, 0.4, 1.65, 1.2); 
+  wingShape.lineTo(1.35, 0.9); 
+  wingShape.quadraticCurveTo(1.2, 0.5, 1.0, 0.4); 
+  wingShape.lineTo(0.7, 0.2);
+
+  const stickerShape = new THREE.Shape();
+  stickerShape.moveTo(1.15, 0.15); stickerShape.lineTo(1.35, 0.15);
+  stickerShape.quadraticCurveTo(1.5, 0.4, 1.5, 0.95); 
+  stickerShape.lineTo(1.35, 0.75); stickerShape.quadraticCurveTo(1.25, 0.5, 1.15, 0.3);
+
+  const greenShape = new THREE.Shape();
+  greenShape.moveTo(1.0, -0.2); greenShape.lineTo(1.15, -0.1); greenShape.lineTo(1.05, 0.0);
+
+  const wingGeo = new THREE.ExtrudeGeometry(wingShape, {depth: 0.1, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02});
+  const stickerGeoRed = new THREE.ExtrudeGeometry(stickerShape, {depth: 0.01, bevelEnabled: false});
+  const stickerGeoBlue = new THREE.ExtrudeGeometry(stickerShape, {depth: 0.01, bevelEnabled: false});
+  const greenStickerGeo = new THREE.ExtrudeGeometry(greenShape, {depth: 0.01, bevelEnabled: false});
+
+  function mapUVs(geometry, minX, maxX, minY, maxY) {
+    const uvs = geometry.attributes.uv;
+    const pos = geometry.attributes.position;
+    for(let i=0; i<uvs.count; i++) {
+        uvs.setXY(i, (pos.getX(i) - minX) / (maxX - minX), (pos.getY(i) - minY) / (maxY - minY));
+    }
+    geometry.attributes.uv.needsUpdate = true;
+  }
+  mapUVs(stickerGeoRed, 1.15, 1.5, 0.15, 0.95);
+  mapUVs(stickerGeoBlue, 1.15, 1.5, 0.15, 0.95);
+
+  for(let i=0; i<4; i++) {
+    const wingPivot = new THREE.Group();
+    wingPivot.rotation.y = (i/4)*Math.PI*2;
+    
+    const metalWing = new THREE.Mesh(wingGeo, matSteel);
+    metalWing.rotation.x = -Math.PI/2;
+    metalWing.position.y = -0.05; 
+    metalWing.castShadow = true; metalWing.receiveShadow = true;
+    wingPivot.add(metalWing);
+    
+    const isRed = (i%2 === 0);
+    const sticker = new THREE.Mesh(isRed ? stickerGeoRed : stickerGeoBlue, isRed ? matRedSticker : matBlueSticker);
+    sticker.rotation.x = -Math.PI/2;
+    sticker.position.y = 0.071; // Sits flawlessly on the flat blade
+    wingPivot.add(sticker);
+    
+    const green = new THREE.Mesh(greenStickerGeo, matGreenSticker);
+    green.rotation.x = -Math.PI/2;
+    green.position.y = 0.071;
+    wingPivot.add(green);
+    
+    // Glowing Rivets
+    const rivetGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.04, 16);
+    const glowMat = new THREE.MeshBasicMaterial({color: isRed ? 0xff3366 : 0x00e6ff});
+    const rivet1 = new THREE.Mesh(rivetGeo, glowMat);
+    rivet1.position.set(1.1, 0.075, 0.05); 
+    wingPivot.add(rivet1);
+    const rivet2 = new THREE.Mesh(rivetGeo, glowMat);
+    rivet2.position.set(1.45, 0.075, -0.1); 
+    wingPivot.add(rivet2);
+
+    // Mechanical Seam on Wing
+    const groove = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.02), matDark);
+    groove.position.set(1.2, 0.06, 0.15); 
+    groove.rotation.y = -Math.PI/6; 
+    wingPivot.add(groove);
+    
+    attackRingGroup.add(wingPivot);
+  }
+  bey.add(attackRingGroup);
+
+  // ---------- 4. HIGH-DETAIL BIT CHIP CASING ----------
+  const chipGroup = new THREE.Group();
+
+  // Silver Torus Base Ring
+  const innerStruct = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.03, 16, 64), matCore);
+  innerStruct.rotation.x = Math.PI/2;
+  innerStruct.position.y = 0.05;
+  chipGroup.add(innerStruct);
+
+  // 4 Locking Bolts
+  for(let i=0; i<4; i++) {
+      const angle = (i/4) * Math.PI * 2 + Math.PI/4;
+      const innerBolt = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.06, 16), matSteel);
+      innerBolt.position.set(0.68 * Math.cos(angle), 0.18, 0.68 * Math.sin(angle));
+      chipGroup.add(innerBolt);
+  }
+  
+  // Tighter Chamfered Housing
+  const housingPts = [
+      new THREE.Vector2(0.55, 0.25), new THREE.Vector2(0.68, 0.25),
+      new THREE.Vector2(0.72, 0.12), new THREE.Vector2(0.75, 0.05)
+  ];
+  const housing = new THREE.Mesh(new THREE.LatheGeometry(housingPts, 64), matSteel);
+  chipGroup.add(housing);
+
+  const bitChipBase = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.05, 64), matDark);
+  bitChipBase.position.y = 0.23;
+  chipGroup.add(bitChipBase);
+
+  const bitChipSticker = new THREE.Mesh(
+    new THREE.CircleGeometry(0.53, 64), 
+    new THREE.MeshBasicMaterial({map: createBitChipTexture()})
+  );
+  bitChipSticker.rotation.x = -Math.PI/2;
+  bitChipSticker.position.y = 0.256; 
+  chipGroup.add(bitChipSticker);
+
+  bey.add(chipGroup);
+  bey.position.y = 0.9;
+
+  // Precession (wobble)
+  const wobblePivot = new THREE.Group();
+  wobblePivot.add(bey);
+  scene.add(wobblePivot);
+
+  // ---------- Sparks ----------
+  const sparkCount = 150;
+  const sparkGeo = new THREE.BufferGeometry();
+  const sparkPos = new Float32Array(sparkCount*3);
+  const sparkVel = [];
+  for(let i=0;i<sparkCount;i++){
+    sparkPos[i*3]=0; sparkPos[i*3+1]=-100; sparkPos[i*3+2]=0;
+    sparkVel.push({vx:0,vy:0,vz:0,life:0});
+  }
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos,3));
+  const sparkMat = new THREE.PointsMaterial({color:0xff22aa, size:0.12, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false});
+  const sparks = new THREE.Points(sparkGeo, sparkMat);
+  scene.add(sparks);
+  let sparkCursor = 0;
+
+  function emitSpark(x,y,z, spinSpeed){
+    const i = sparkCursor % sparkCount;
+    sparkCursor++;
+    const arr = sparks.geometry.attributes.position.array;
+    arr[i*3]=x; arr[i*3+1]=y; arr[i*3+2]=z;
+    const ang = Math.random()*Math.PI*2;
+    const outward = 0.03 + Math.random()*0.06;
+    sparkVel[i] = {
+      vx: Math.cos(ang)*outward + Math.sin(bey.rotation.y)*0.02*spinSpeed,
+      vy: 0.02 + Math.random()*0.06,
+      vz: Math.sin(ang)*outward,
+      life: 1.0
+    };
+  }
+
+  // ---------- Shockwave rings ----------
+  const shockwaves = [];
+  function spawnShockwave(color, startScale, thickness){
+    const geo = new THREE.RingGeometry(1,1+thickness,80);
+    const mat = new THREE.MeshBasicMaterial({color:color, transparent:true, opacity:0.8, side:THREE.DoubleSide, blending:THREE.AdditiveBlending, depthWrite:false});
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI/2;
+    mesh.position.y = 0.05;
+    mesh.scale.setScalar(startScale);
+    scene.add(mesh);
+    shockwaves.push({mesh, life:0, maxLife: 1.1 + Math.random()*0.4});
+  }
+
+  function spawnFlash(){
+    const flash = new THREE.PointLight(0xff22aa, 8, 15);
+    flash.position.set(0,1.5,0);
+    scene.add(flash);
+    let t=0;
+    function fade(){
+      t += 0.045;
+      flash.intensity = 8*(1-t);
+      if(t<1) requestAnimationFrame(fade); else scene.remove(flash);
+    }
+    fade();
+  }
+
+  // ---------- State ----------
+  let spinSpeed = 0.25;      
+  let boostTimer = 0;
+  const rpmDisplay = document.getElementById('rpmVal');
+
+  document.getElementById('launchBtn').onclick = () => {
+    spinSpeed = 1.35;
+    spawnShockwave(0x00eeff, 0.6, 0.5);
+    spawnShockwave(0xff22aa, 0.4, 0.35);
+    spawnFlash();
+    shakeCamera(0.6);
+  };
+  document.getElementById('speedBtn').onclick = () => {
+    spinSpeed = Math.min(spinSpeed + 0.35, 2.2);
+    boostTimer = 40;
+  };
+  document.getElementById('resetBtn').onclick = () => {
+    spinSpeed = 0.25;
+  };
+
+  let shakeAmt = 0;
+  function shakeCamera(amt){ shakeAmt = amt; }
+
+  // ---------- Controls ----------
+  let isDragging=false, prevX=0, prevY=0;
+  let camTheta = 0.55, camPhi = 0.78, camRadius = 7.5;
+  function updateCamera(){
+    const x = camRadius * Math.sin(camPhi) * Math.sin(camTheta);
+    const y = camRadius * Math.cos(camPhi) + 1;
+    const z = camRadius * Math.sin(camPhi) * Math.cos(camTheta);
+    camera.position.set(x,y,z);
+    camera.lookAt(0,0.6,0);
+  }
+  updateCamera();
+
+  renderer.domElement.addEventListener('pointerdown', e=>{isDragging=true; prevX=e.clientX; prevY=e.clientY;});
+  window.addEventListener('pointerup', ()=>isDragging=false);
+  window.addEventListener('pointermove', e=>{
+    if(!isDragging) return;
+    const dx = e.clientX - prevX, dy = e.clientY - prevY;
+    prevX = e.clientX; prevY = e.clientY;
+    camTheta -= dx*0.006;
+    camPhi = Math.min(Math.max(camPhi - dy*0.006, 0.35), 1.5);
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('wheel', e=>{
+    camRadius = Math.min(Math.max(camRadius + e.deltaY*0.01, 4), 16);
+    updateCamera();
+    e.preventDefault();
+  }, {passive:false});
+
+  let autoShockTimer = 0;
+
+  // ---------- Animate ----------
+  const clock = new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+
+    if(boostTimer>0) boostTimer--; else spinSpeed += (0.55 - spinSpeed)*0.004;
+
+    bey.rotation.y += spinSpeed;
+    wobblePivot.rotation.z = Math.sin(t*2.3)*0.035 * Math.min(spinSpeed,1);
+    wobblePivot.rotation.x = Math.cos(t*1.9)*0.035 * Math.min(spinSpeed,1);
+    bey.position.y = 0.9 + Math.sin(t*14)*0.008*Math.min(spinSpeed,1.2);
+
+    if(spinSpeed>0.5){
+      const rate = Math.floor(spinSpeed*2);
+      for(let i=0;i<rate;i++){
+        emitSpark((Math.random()-0.5)*0.3, 0.03, (Math.random()-0.5)*0.3, spinSpeed);
+      }
+    }
+    const posArr = sparks.geometry.attributes.position.array;
+    for(let i=0;i<sparkCount;i++){
+      const v = sparkVel[i];
+      if(v.life>0){
+        posArr[i*3]   += v.vx;
+        posArr[i*3+1] += v.vy;
+        posArr[i*3+2] += v.vz;
+        v.vy -= 0.004;
+        v.life -= 0.03;
+        if(v.life<=0){ posArr[i*3+1] = -100; }
+      }
+    }
+    sparks.geometry.attributes.position.needsUpdate = true;
+
+    if(spinSpeed>1.0){
+      autoShockTimer -= dt;
+      if(autoShockTimer<=0){
+        spawnShockwave(Math.random()>0.5?0x00eeff:0xff22aa, 0.3, 0.22);
+        autoShockTimer = 0.35;
+      }
+    }
+
+    for(let i=shockwaves.length-1;i>=0;i--){
+      const s = shockwaves[i];
+      s.life += dt;
+      const p = s.life / s.maxLife;
+      const scale = THREE.MathUtils.lerp(s.mesh.scale.x, 1 + p*7, 1);
+      s.mesh.scale.setScalar(scale + dt*4.5);
+      s.mesh.material.opacity = Math.max(0, 0.85*(1-p));
+      if(p>=1){ scene.remove(s.mesh); shockwaves.splice(i,1); }
+    }
+
+    if(shakeAmt>0.001){
+      camera.position.x += (Math.random()-0.5)*shakeAmt;
+      camera.position.y += (Math.random()-0.5)*shakeAmt*0.5;
+      shakeAmt *= 0.85;
+    }
+
+    rpmDisplay.textContent = Math.round(spinSpeed*4200);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+</script>
+</body>
+</html>
