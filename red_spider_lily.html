@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Higanbana — Deep Forest Realism</title>
+<style>
+  :root {
+    /* Photorealistic Higanbana Palette */
+    --petal-bright: #e62310;
+    --petal-mid: #b81408;
+    --petal-dark: #7a0902;
+    --petal-shadow: #3b0200;
+    --stamen: #cc1b0c;
+    --anther: #dfa637; /* Realistic golden-yellow pollen */
+    --stem: #46632c;
+    --stem-dark: #293d18;
+    --ink: #110806;
+    --text-light: #ebdcd8;
+  }
+  
+  * { box-sizing: border-box; }
+  
+  html, body {
+    margin: 0; height: 100%;
+    background: #090b07;
+    font-family: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  
+  .stage { 
+    position: relative; 
+    width: min(94vw, 1000px); 
+    aspect-ratio: 16/10; 
+    box-shadow: 0 30px 100px rgba(0,0,0,0.8);
+    background: #0c0f0a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  svg { width: 100%; height: 100%; display: block; }
+
+  .caption {
+    position: absolute; bottom: 5%; left: 5%;
+    text-align: left; color: var(--text-light); letter-spacing: 0.15em;
+    font-size: 11px; text-transform: uppercase; pointer-events: none;
+    opacity: 0; animation: fadeIn 3s ease 2s forwards;
+    z-index: 10;
+  }
+  .caption strong {
+    display: block; color: #fff; font-size: 22px; letter-spacing: 0.05em;
+    font-weight: 400; margin-bottom: 2px; font-style: italic;
+  }
+  @keyframes fadeIn { to { opacity: 0.65; } }
+
+  .controls { position: absolute; bottom: 5%; right: 5%; z-index: 10; }
+  button {
+    background: rgba(20, 25, 18, 0.6);
+    border: 1px solid rgba(230, 35, 16, 0.3);
+    color: var(--text-light);
+    padding: 10px 24px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .4s ease;
+    backdrop-filter: blur(5px);
+  }
+  button:hover { 
+    background: rgba(230, 35, 16, 0.15); 
+    border-color: var(--petal-bright);
+    color: #fff;
+  }
+
+  /* Cinematic depth shading */
+  .bg-layer { filter: url(#forestBlur); opacity: 0.25; }
+  .mid-blur { filter: url(#bokehBlur); opacity: 0.5; }
+  
+  .stem {
+    fill: none;
+    stroke-linecap: round;
+    stroke-dasharray: 600; stroke-dashoffset: 600;
+    animation: growStem 2.2s cubic-bezier(.25,.8,.25,1) forwards;
+  }
+  @keyframes growStem { to { stroke-dashoffset: 0; } }
+
+  .blade {
+    fill: url(#stemGrad);
+    opacity: 0;
+    transform-origin: var(--lx) var(--ly);
+    animation: leafOpen 1.5s cubic-bezier(.25,1,.5,1) forwards;
+  }
+  @keyframes leafOpen {
+    from { opacity: 0; transform: scale(0) rotate(-15deg); }
+    to { opacity: 0.5; transform: scale(1) rotate(0deg); }
+  }
+
+  .petal-path {
+    transform-origin: 0 0;
+    transform: rotate(var(--ang)) scale(0.01);
+    animation: bloom 2.4s cubic-bezier(.15,.85,.3,1) forwards;
+    animation-delay: var(--pd);
+  }
+  
+  @keyframes bloom {
+    0% { transform: rotate(var(--ang)) scale(0.01) translate(0, 0); }
+    70% { transform: rotate(var(--ang)) scale(1.04) translate(2px, -1px); }
+    100% { transform: rotate(var(--ang)) scale(1) translate(0, 0); }
+  }
+
+  .stamenGrp {
+    transform-origin: 0 0;
+    transform: rotate(var(--ang)) scale(0.01);
+    animation: bloom 2.6s cubic-bezier(.15,.85,.3,1) forwards;
+    animation-delay: var(--sd);
+  }
+
+  .swayInner {
+    animation: organicSway 8s ease-in-out infinite;
+    transform-origin: 0 200px;
+  }
+  @keyframes organicSway {
+    0%, 100% { transform: rotate(0deg) translateX(0); }
+    50% { transform: rotate(0.8deg) translateX(3px); }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <svg viewBox="0 0 1000 625" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="forestBlur" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="15" />
+      </filter>
+      <filter id="bokehBlur" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6" />
+      </filter>
+      <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+        <feGaussianBlur stdDeviation="4" result="blur" />
+        <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.3 0" />
+      </filter>
+
+      <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#161d12" />
+        <stop offset="40%" stop-color="#0f140d" />
+        <stop offset="100%" stop-color="#050704" />
+      </linearGradient>
+      
+      <linearGradient id="stemGrad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="var(--stem-dark)" />
+        <stop offset="50%" stop-color="var(--stem)" />
+        <stop offset="100%" stop-color="#1e2d11" />
+      </linearGradient>
+
+      <radialGradient id="flowerGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#e62310" stop-opacity="0.15" />
+        <stop offset="100%" stop-color="#e62310" stop-opacity="0" />
+      </radialGradient>
+    </defs>
+
+    <rect width="1000" height="625" fill="url(#bgGrad)" />
+    <g id="forestBackdrop" class="bg-layer"></g>
+    <g id="midgroundHaze" class="mid-blur"></g>
+    
+    <g id="scene"></g>
+  </svg>
+
+  <div class="caption">
+    <strong>Lycoris radiata</strong>
+    Red Spider Lily — Deep Forest Floor
+  </div>
+  <div class="controls"><button id="replay">Replay Growth</button></div>
+</div>
+
+<script>
+const svgNS = "http://www.w3.org/2000/svg";
+const backdrop = document.getElementById('forestBackdrop');
+const haze = document.getElementById('midgroundHaze');
+const scene = document.getElementById('scene');
+function rnd(a,b){ return a+Math.random()*(b-a); }
+
+// Generates highly organic curves mimicking natural petal curls
+function ribbon({length, baseWidth, tipWidth, curlDeg, curlStartFrac=0.5, bendDeg=0, segments=30}){
+  const pts=[]; let x=0, y=0; const ds=length/segments;
+  for(let i=0; i<=segments; i++){
+    const t=i/segments; let a;
+    if(t<curlStartFrac){ 
+      a = bendDeg * (t/curlStartFrac); 
+    } else {
+      const u=(t-curlStartFrac)/(1-curlStartFrac);
+      const eased = u*u*(3-2*u); // Smooth step curve
+      a = bendDeg + curlDeg*eased;
+    }
+    // Add minor micro-wavy imperfections to mimic organic tissue
+    a += Math.sin(t * Math.PI * 5) * 1.5;
+    if(i>0){ const rad=a*Math.PI/180; x+=ds*Math.cos(rad); y+=ds*Math.sin(rad); }
+    pts.push({x,y,a});
+  }
+  const outer=[], inner=[];
+  for(let i=0; i<pts.length; i++){
+    const t=i/segments;
+    const w=(baseWidth+(tipWidth-baseWidth)*t)/2;
+    const rad=pts[i].a*Math.PI/180;
+    const nx=-Math.sin(rad), ny=Math.cos(rad);
+    outer.push({x:pts[i].x+nx*w, y:pts[i].y+ny*w});
+    inner.push({x:pts[i].x-nx*w, y:pts[i].y-ny*w});
+  }
+  let d=`M ${outer[0].x.toFixed(2)},${outer[0].y.toFixed(2)} `;
+  for(let i=1; i<outer.length; i++) d+=`L ${outer[i].x.toFixed(2)},${outer[i].y.toFixed(2)} `;
+  for(let i=inner.length-1; i>=0; i--) d+=`L ${inner[i].x.toFixed(2)},${inner[i].y.toFixed(2)} `;
+  d+='Z';
+  return {d, spine: pts, tipX:x, tipY:y, tipAngle:pts[pts.length-1].a};
+}
+
+function makeFlower(cx, cy, scale, baseDelay, rot) {
+  const posG = document.createElementNS(svgNS,'g');
+  posG.setAttribute('transform', `translate(${cx},${cy}) scale(${scale}) rotate(${rot})`);
+
+  const g = document.createElementNS(svgNS,'g');
+  g.setAttribute('class','swayInner');
+  g.style.animationDelay = rnd(0, 4) + 's';
+  posG.appendChild(g);
+
+  // Soft environmental backlighting shadow / glow hybrid
+  const envGlow = document.createElementNS(svgNS,'circle');
+  envGlow.setAttribute('r', 160);
+  envGlow.setAttribute('fill', 'url(#flowerGlow)');
+  g.appendChild(envGlow);
+
+  const nPetals = 26; // Denser cluster matches structural accuracy
+  for(let i=0; i<nPetals; i++){
+    const startAngle = (360/nPetals)*i + rnd(-6,6);
+    const waveShift = Math.sin(i)*12;
+    
+    const {d} = ribbon({
+      length: rnd(95,130), baseWidth: rnd(9,13), tipWidth: 0.8,
+      curlDeg: rnd(190,250), curlStartFrac: 0.45, bendDeg: rnd(-15,15) + waveShift, segments: 28
+    });
+    
+    const p = document.createElementNS(svgNS,'path');
+    p.setAttribute('d', d);
+    
+    // Smooth natural gradients across three core structural tones
+    const tone = i % 3;
+    p.setAttribute('fill', tone===0 ? 'var(--petal-dark)' : (tone===1 ? 'var(--petal-mid)' : 'var(--petal-bright)'));
+    p.setAttribute('stroke', 'var(--petal-shadow)');
+    p.setAttribute('stroke-width', '0.5');
+    p.setAttribute('class', 'petal-path');
+    p.style.setProperty('--ang', startAngle+'deg');
+    p.style.setProperty('--pd', (baseDelay + i*0.04)+'s');
+    g.appendChild(p);
+  }
+
+  // Stamens: The long, sweeping elegant "legs" of the Spider Lily
+  const nStamen = 16;
+  for(let i=0; i<nStamen; i++){
+    const startAngle = (360/nStamen)*i + rnd(-10,10);
+    const len = rnd(180,260);
+    
+    const {d, tipX, tipY, tipAngle} = ribbon({
+      length: len, baseWidth: 2.2, tipWidth: 0.9,
+      curlDeg: rnd(90,140) * (i%2===0 ? 1 : -0.8), curlStartFrac: 0.75, bendDeg: rnd(-12,12), segments: 30
+    });
+    
+    const sg = document.createElementNS(svgNS,'g');
+    sg.setAttribute('class','stamenGrp');
+    sg.style.setProperty('--ang', startAngle+'deg');
+    sg.style.setProperty('--sd', (baseDelay + 1.1 + i*0.04)+'s');
+
+    const line = document.createElementNS(svgNS,'path');
+    line.setAttribute('d', d);
+    line.setAttribute('fill', 'var(--stamen)');
+    line.setAttribute('opacity', '0.95');
+    sg.appendChild(line);
+
+    // Botanically accurate golden pollen tips
+    const anther = document.createElementNS(svgNS,'ellipse');
+    anther.setAttribute('cx', tipX); anther.setAttribute('cy', tipY);
+    anther.setAttribute('rx', 5.5); anther.setAttribute('ry', 2.8);
+    anther.setAttribute('transform', `rotate(${tipAngle} ${tipX} ${tipY})`);
+    anther.setAttribute('fill', 'var(--anther)');
+    anther.setAttribute('stroke', 'var(--petal-dark)');
+    anther.setAttribute('stroke-width', '0.5');
+    sg.appendChild(anther);
+
+    g.appendChild(sg);
+  }
+
+  // Organic core hub connecting filaments
+  const center = document.createElementNS(svgNS,'circle');
+  center.setAttribute('r', 8);
+  center.setAttribute('fill', 'var(--petal-shadow)');
+  g.appendChild(center);
+
+  return posG;
+}
+
+function makeStem(x1, y1, x2, y2, delay, width){
+  const path = document.createElementNS(svgNS,'path');
+  const midy = (y1+y2)/2;
+  // Natural S-curve offset for biological growth look
+  const cp1x = x1 + (x2-x1)*0.2 + rnd(-15,15);
+  const cp2x = x1 + (x2-x1)*0.7 + rnd(-10,10);
+  
+  path.setAttribute('d', `M${x1},${y1} C${cp1x},${midy+50} ${cp2x},${midy-50} ${x2},${y2}`);
+  path.setAttribute('class', 'stem');
+  path.setAttribute('stroke', 'url(#stemGrad)');
+  path.style.strokeWidth = width;
+  path.style.animationDelay = delay+'s';
+  return path;
+}
+
+function makeBlade(bx, by, dir, scale){
+  const blade = document.createElementNS(svgNS,'path');
+  const w = 22*scale, h = 75*scale;
+  blade.setAttribute('d', `M${bx},${by} C ${bx+dir*w*0.4},${by-h*0.3} ${bx+dir*w*1.2},${by-h*0.6} ${bx+dir*w*1.5},${by-h*0.7} C ${bx+dir*w*0.8},${by-h*0.4} ${bx+dir*w*0.3},${by-h*0.1} ${bx},${by} Z`);
+  blade.setAttribute('class', 'blade');
+  blade.style.setProperty('--lx', bx+'px');
+  blade.style.setProperty('--ly', by+'px');
+  return blade;
+}
+
+// Builds a beautiful cinematic depth-of-field environment background
+function buildEnvironment(){
+  backdrop.innerHTML = '';
+  haze.innerHTML = '';
+
+  // Distant out-of-focus background forest trunks
+  for(let i=0; i<12; i++){
+    const x = rnd(-50, 1050);
+    const w = rnd(35, 90);
+    const trunk = document.createElementNS(svgNS, 'rect');
+    trunk.setAttribute('x', x); trunk.setAttribute('y', -50);
+    trunk.setAttribute('width', w); trunk.setAttribute('height', 700);
+    trunk.setAttribute('fill', i%2===0 ? '#131a10' : '#0d120b');
+    backdrop.appendChild(trunk);
+  }
+
+  // Midground bokeh variations (blurry ambient lights)
+  for(let i=0; i<18; i++){
+    const circ = document.createElementNS(svgNS, 'circle');
+    circ.setAttribute('cx', rnd(0, 1000));
+    circ.setAttribute('cy', rnd(100, 450));
+    circ.setAttribute('r', rnd(15, 55));
+    circ.setAttribute('fill', i%3===0 ? '#384d2b' : (i%3===1 ? '#221614' : '#1b2616'));
+    haze.appendChild(circ);
+  }
+}
+
+function buildScene(){
+  scene.innerHTML = '';
+  buildEnvironment();
+
+  // Natural structural composition layout
+  const setup = [
+    {x1:220, y1:660, x2:190, y2:270, delay:0,    scale:0.72, fdelay:1.2, rot:6,   w:4.5},
+    {x1:510, y1:670, x2:490, y2:150, delay:0.2,  scale:1.0,  fdelay:1.4, rot:-2,  w:5.5},
+    {x1:800, y1:660, x2:830, y2:310, delay:0.4,  scale:0.68, fdelay:1.7, rot:-8,  w:4.2},
+    {x1:670, y1:660, x2:690, y2:410, delay:0.6,  scale:0.48, fdelay:1.9, rot:4,   w:3.5}
+  ];
+
+  setup.forEach(s => {
+    scene.appendChild(makeStem(s.x1, s.y1, s.x2, s.y2, s.delay, s.w));
+    
+    // Add base leaves to stems for grounded plant biology
+    const midX = (s.x1 + s.x2) / 2;
+    const midY = (s.y1 + s.y2) / 2 + 80;
+    scene.appendChild(makeBlade(midX, midY, 1, s.scale));
+    scene.appendChild(makeBlade(midX - 3, midY + 35, -1, s.scale * 0.85));
+    
+    scene.appendChild(makeFlower(s.x2, s.y2, s.scale, s.fdelay, s.rot));
+  });
+}
+
+buildScene();
+document.getElementById('replay').addEventListener('click', buildScene);
+</script>
+</body>
+</html>
