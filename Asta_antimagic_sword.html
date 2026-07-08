@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asta's Demon-Slayer Sword - Anti-Magic Aura</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@700;900&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #ffffff;
+            overflow: hidden;
+            cursor: none;
+            font-family: 'Outfit', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #ui-container {
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            pointer-events: none;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 3rem;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            color: #111;
+            font-weight: 900;
+        }
+        .subtitle {
+            font-size: 1.2rem;
+            color: #666;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+        #aura-btn {
+            margin-top: 15px;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            text-transform: uppercase;
+            color: #fff;
+            background: #ff1e56;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            pointer-events: auto;
+            box-shadow: 0 4px 15px rgba(255, 30, 86, 0.4);
+            transition: all 0.3s ease;
+            width: fit-content;
+        }
+        #aura-btn:hover {
+            background: #d41746;
+            transform: translateY(-2px);
+        }
+        #aura-btn.active {
+            background: #0a0a0a;
+            color: #ff1e56;
+            box-shadow: 0 0 20px rgba(142, 0, 179, 0.6);
+            border: 2px solid #ff1e56;
+        }
+        .instructions {
+            position: absolute;
+            bottom: 40px;
+            width: 100%;
+            text-align: center;
+            color: rgba(0, 0, 0, 0.5);
+            font-size: 1rem;
+            letter-spacing: 1px;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui-container">
+        <h1>Black-clover</h1>
+        <div class="subtitle">Anti-Magic Sword</div>
+        <button id="aura-btn" class="active">Disable Anti-Magic Aura</button>
+    </div>
+    <div class="instructions">Move your cursor to swing the sword.</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); // Optimize for no transparency on base canvas
+        let width, height;
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const mouse = { x: width / 2, y: height / 2 };
+        
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+        
+        window.addEventListener('touchmove', (e) => {
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        }, { passive: true });
+
+        // Pre-render aura particle images
+        const blackAura = document.createElement('canvas');
+        blackAura.width = 128; blackAura.height = 128;
+        const bCtx = blackAura.getContext('2d');
+        const bGrad = bCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        bGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        bGrad.addColorStop(0.3, 'rgba(15, 10, 15, 0.8)');
+        bGrad.addColorStop(0.7, 'rgba(5, 5, 5, 0.3)');
+        bGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        bCtx.fillStyle = bGrad;
+        bCtx.fillRect(0,0,128,128);
+
+        const redAura = document.createElement('canvas');
+        redAura.width = 128; redAura.height = 128;
+        const rCtx = redAura.getContext('2d');
+        const rGrad = rCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        rGrad.addColorStop(0, 'rgba(255, 30, 48, 0.9)');
+        rGrad.addColorStop(0.4, 'rgba(200, 10, 30, 0.6)');
+        rGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        rCtx.fillStyle = rGrad;
+        rCtx.fillRect(0,0,128,128);
+
+        const sword = {
+            x: width / 2,
+            y: height / 2,
+            lastX: width / 2,
+            lastY: height / 2,
+            angle: 0
+        };
+
+        const particles = [];
+        const energyLines = [];
+        
+        let auraActive = true;
+        const auraBtn = document.getElementById('aura-btn');
+        auraBtn.addEventListener('click', () => {
+            auraActive = !auraActive;
+            if (auraActive) {
+                auraBtn.classList.add('active');
+                auraBtn.innerText = 'Disable Anti-Magic Aura';
+            } else {
+                auraBtn.classList.remove('active');
+                auraBtn.innerText = 'Enable Anti-Magic Aura';
+            }
+        });
+
+        class Particle {
+            constructor(x, y, type, vx, vy) {
+                this.x = x;
+                this.y = y;
+                this.type = type; 
+                this.size = Math.random() * 50 + 25; // Bigger for a fuller aura
+                this.life = 1;
+                this.decay = Math.random() * 0.02 + 0.01; // Aggressive fade
+                
+                // Pure smooth flow behind the sword with a bit of scatter
+                this.vx = vx + (Math.random() - 0.5) * 3;
+                this.vy = vy + (Math.random() - 0.5) * 3 - (Math.random()); // Aggressive drift
+                
+                // Align to velocity
+                let speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                this.angle = speed > 0.1 ? Math.atan2(this.vy, this.vx) + Math.PI/2 : (Math.random() - 0.5) * 0.5;
+                
+                // Aggressive stretch
+                this.scaleX = 0.8 + Math.random() * 0.4;
+                this.scaleY = 1.8 + (speed * 0.1); 
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+                this.size *= 0.96; // Gently taper off
+            }
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.scale(this.scaleX, this.scaleY);
+                // Quadratic fade for extremely smooth trailing ends
+                ctx.globalAlpha = this.life * this.life;
+                
+                let img = this.type === 'black' ? blackAura : redAura;
+                ctx.globalCompositeOperation = 'source-over'; 
+                ctx.drawImage(img, -this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+
+        function drawSword(ctx) {
+            ctx.save();
+            ctx.translate(sword.x, sword.y);
+            ctx.rotate(sword.angle);
+
+            if (auraActive) {
+                ctx.scale(1.3, 1.3); 
+
+                const darkColor = '#131313';
+                const redColor = '#ff1e30';
+
+                // Base Blade Shape (Triangle)
+                ctx.fillStyle = darkColor;
+                ctx.beginPath();
+                ctx.moveTo(-45, 0); 
+                ctx.lineTo(0, 320); // Tip
+                ctx.lineTo(45, 0);
+                ctx.closePath();
+                ctx.fill();
+
+                // Inner Red Jagged Shape (matches Image 5)
+                ctx.fillStyle = redColor;
+                ctx.beginPath();
+                ctx.moveTo(-20, 10);
+                ctx.lineTo(15, 12);
+                ctx.lineTo(30, 45);
+                ctx.lineTo(12, 70);
+                ctx.lineTo(28, 95);
+                ctx.lineTo(8, 120);
+                ctx.lineTo(25, 160);
+                ctx.lineTo(0, 180);
+                ctx.lineTo(18, 220);
+                ctx.lineTo(0, 260);
+                ctx.lineTo(-5, 300);
+                ctx.lineTo(-18, 240);
+                ctx.lineTo(-8, 200);
+                ctx.lineTo(-28, 170);
+                ctx.lineTo(-12, 130);
+                ctx.lineTo(-32, 100);
+                ctx.lineTo(-15, 65);
+                ctx.lineTo(-30, 35);
+                ctx.closePath();
+                ctx.fill();
+
+                // Additional red floating spots
+                ctx.beginPath(); ctx.moveTo(-38, 20); ctx.lineTo(-28, 30); ctx.lineTo(-42, 45); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(38, 20); ctx.lineTo(28, 30); ctx.lineTo(42, 45); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(25, 130); ctx.lineTo(15, 140); ctx.lineTo(28, 160); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(-22, 210); ctx.lineTo(-12, 220); ctx.lineTo(-25, 240); ctx.fill();
+
+                // Structure lines (Handle and Crossguard)
+                ctx.strokeStyle = darkColor;
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                
+                // Vertical line running from handle into blade
+                ctx.beginPath();
+                ctx.moveTo(0, -90);
+                ctx.lineTo(0, 60);
+                ctx.stroke();
+
+                // Horizontal Crossguard
+                ctx.beginPath();
+                ctx.moveTo(-65, -30);
+                ctx.lineTo(65, -30);
+                ctx.stroke();
+
+                // Red accents (dots) on the structure
+                ctx.fillStyle = redColor;
+                const dotRadius = 4;
+                ctx.beginPath(); ctx.arc(0, -90, dotRadius, 0, Math.PI*2); ctx.fill(); // Pommel
+                ctx.beginPath(); ctx.arc(-65, -30, dotRadius, 0, Math.PI*2); ctx.fill(); // Left Guard
+                ctx.beginPath(); ctx.arc(65, -30, dotRadius, 0, Math.PI*2); ctx.fill(); // Right Guard
+                ctx.beginPath(); ctx.arc(0, 60, dotRadius, 0, Math.PI*2); ctx.fill(); // Blade Center
+
+                // Subtle red glow on the entire blade
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = 'rgba(255, 30, 48, 0.5)';
+                ctx.strokeStyle = 'rgba(255, 30, 48, 0.2)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-45, 0); ctx.lineTo(0, 320); ctx.lineTo(45, 0); ctx.closePath();
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            } else {
+                ctx.scale(1.3, 1.3); // Massive buster sword size
+
+                // Blade Shape
+                ctx.beginPath();
+                ctx.moveTo(-35, 0); 
+                ctx.lineTo(-30, 240); 
+                ctx.lineTo(0, 320); // Tip
+                ctx.lineTo(30, 240);
+                ctx.lineTo(35, 0);
+                ctx.closePath();
+                
+                // Blade Metallic Gradient (greyer base, like image 1)
+                let grad = ctx.createLinearGradient(-35, 0, 35, 0);
+                grad.addColorStop(0, '#555555');
+                grad.addColorStop(0.2, '#888888');
+                grad.addColorStop(0.5, '#bbbbbb'); 
+                grad.addColorStop(0.8, '#777777');
+                grad.addColorStop(1, '#444444');
+                ctx.fillStyle = grad;
+                ctx.fill();
+
+                // Center ridge / fuller
+                ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, 320);
+                ctx.stroke();
+
+                // Iconic Black Rust/Splotches
+                ctx.fillStyle = '#151517';
+                // Left patches
+                ctx.beginPath();
+                ctx.moveTo(-35, 10); ctx.lineTo(-10, 25); ctx.lineTo(-15, 45); ctx.lineTo(-34, 60); ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(-33, 100); ctx.lineTo(-5, 110); ctx.lineTo(-15, 140); ctx.lineTo(-8, 160); ctx.lineTo(-31, 180); ctx.fill();
+                // Right patches
+                ctx.beginPath();
+                ctx.moveTo(35, 30); ctx.lineTo(15, 40); ctx.lineTo(20, 70); ctx.lineTo(5, 90); ctx.lineTo(33, 110); ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(32, 150); ctx.lineTo(10, 160); ctx.lineTo(20, 190); ctx.lineTo(0, 210); ctx.lineTo(28, 230); ctx.fill();
+                // Tip patches
+                ctx.beginPath();
+                ctx.moveTo(0, 240); ctx.lineTo(-15, 260); ctx.lineTo(0, 320); ctx.lineTo(15, 270); ctx.fill();
+
+                // Edge Bevels
+                ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(-35, 0); ctx.lineTo(-30, 240); ctx.lineTo(0, 320); ctx.lineTo(30, 240); ctx.lineTo(35, 0);
+                ctx.stroke();
+
+                // Crossguard arms
+                ctx.fillStyle = '#1a1a1a';
+                ctx.beginPath();
+                ctx.moveTo(-60, -5);
+                ctx.lineTo(60, -5);
+                ctx.lineTo(55, -20);
+                ctx.lineTo(-55, -20);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Pointed tips on crossguard
+                ctx.beginPath(); ctx.moveTo(60, -5); ctx.lineTo(65, -12.5); ctx.lineTo(55, -20); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(-60, -5); ctx.lineTo(-65, -12.5); ctx.lineTo(-55, -20); ctx.fill();
+
+                // Central diamond on crossguard
+                ctx.fillStyle = '#0a0a0a';
+                ctx.beginPath();
+                ctx.moveTo(0, 5);
+                ctx.lineTo(12, -12.5);
+                ctx.lineTo(0, -30);
+                ctx.lineTo(-12, -12.5);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // Handle
+                let hGrad = ctx.createLinearGradient(-8, 0, 8, 0);
+                hGrad.addColorStop(0, '#111');
+                hGrad.addColorStop(0.5, '#444');
+                hGrad.addColorStop(1, '#050505');
+                ctx.fillStyle = hGrad;
+                ctx.fillRect(-7, -110, 14, 90); 
+                
+                // Handle ribbed wrap
+                ctx.strokeStyle = '#020202';
+                ctx.lineWidth = 2.5;
+                for(let y = -25; y > -105; y -= 10) {
+                    ctx.beginPath();
+                    ctx.moveTo(-7, y);
+                    ctx.lineTo(7, y);
+                    ctx.stroke();
+                }
+
+                // Pommel (rounded knob with finial)
+                ctx.beginPath();
+                ctx.arc(0, -115, 14, 0, Math.PI*2);
+                let pGrad = ctx.createRadialGradient(0, -115, 0, 0, -115, 14);
+                pGrad.addColorStop(0, '#555');
+                pGrad.addColorStop(1, '#000');
+                ctx.fillStyle = pGrad;
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.arc(0, -132, 6, 0, Math.PI*2);
+                ctx.fillStyle = '#222';
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        function animate() {
+            // Fill background with white
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+
+            // Calculate sword movement tracking mouse
+            let dx = mouse.x - sword.x;
+            let dy = mouse.y - sword.y;
+            
+            sword.lastX = sword.x;
+            sword.lastY = sword.y;
+            
+            // Slower easing to simulate heavy weight of the broadsword
+            sword.x += dx * 0.1;
+            sword.y += dy * 0.1;
+
+            let sdx = sword.x - sword.lastX;
+            let sdy = sword.y - sword.lastY;
+            let speed = Math.sqrt(sdx*sdx + sdy*sdy);
+
+            // Calculate rotation angle
+            let targetAngle;
+            if (speed > 1.5) {
+                // If moving, blade trails behind the handle (+90 deg offset since tip is down)
+                targetAngle = Math.atan2(sdy, sdx) + Math.PI / 2;
+            } else {
+                // Resting position pointing diagonally
+                targetAngle = Math.PI / 5; 
+            }
+
+            // Smooth angular interpolation
+            let angleDiff = targetAngle - sword.angle;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            sword.angle += angleDiff * 0.15;
+
+            // --- Particle Spawning ---
+            if (auraActive) {
+                // High density, full aggressive spawn
+                let spawnCount = Math.floor(Math.random() * 15) + 10;
+                if (speed > 5) spawnCount += Math.floor(speed * 2);
+
+                for(let i=0; i<spawnCount; i++) {
+                    let localY = Math.random() * 320 * 1.3; 
+                    
+                    // Base width
+                    let edgeWidth = (1 - (localY / (320 * 1.3))) * 45 * 1.3;
+                    
+                    // We want it full and spilling out, so spawn anywhere inside a widened bounds
+                    let spawnWidth = edgeWidth + 30; // Spill out by 30px
+                    let localX = (Math.random() - 0.5) * spawnWidth * 2;
+
+                    let cos = Math.cos(sword.angle);
+                    let sin = Math.sin(sword.angle);
+                    
+                    let px = sword.x + localX * cos - localY * sin;
+                    let py = sword.y + localX * sin + localY * cos;
+                    
+                    let vx = -sdx * 0.25; // Aggressive trailing
+                    let vy = -sdy * 0.25;
+                    
+                    // Dark aura
+                    particles.push(new Particle(px, py, 'black', vx, vy));
+                    
+                    // Red core (mostly centered)
+                    if (Math.random() > 0.3 && Math.abs(localX) < edgeWidth + 10) {
+                        particles.push(new Particle(px, py, 'red', vx, vy));
+                    }
+                }
+            }
+
+            // --- Rendering Order ---
+            
+            // 1. Draw entire aura (Background)
+            // Draw red glowing core first
+            particles.forEach(p => { if(p.type === 'red') p.draw(ctx); });
+            // Draw black dark ink over it
+            particles.forEach(p => { if(p.type === 'black') p.draw(ctx); });
+            
+            // 2. Draw the sword itself (Foreground - crisp and fully visible)
+            drawSword(ctx);
+
+            // Update & cull particles
+            for(let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                if (particles[i].life <= 0) particles.splice(i, 1);
+            }
+
+            // Draw custom targeting cursor
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI*2);
+            ctx.fillStyle = '#ff1e56';
+            ctx.fill();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff1e56';
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI*2);
+            ctx.strokeStyle = 'rgba(255, 30, 86, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
