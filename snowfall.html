@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Peaceful Snowfall</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+  canvas {
+    display: block;
+    background: radial-gradient(ellipse at center, #0a1230 0%, #030510 100%);
+  }
+  .caption {
+    position: fixed;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: rgba(255,255,255,0.35);
+    font-family: 'Georgia', serif;
+    font-size: 15px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="snowCanvas"></canvas>
+<div class="caption">Let it snow, let it be still<br><span style="font-size:11px; letter-spacing:2px; opacity:0.7;">move your cursor · click to sparkle</span></div>
+
+<script>
+const canvas = document.getElementById('snowCanvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+// Cap pixel ratio to keep canvas resolution reasonable on high-DPI/retina laptops
+const DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+
+let width, height;
+function resize() {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width * DPR;
+  canvas.height = height * DPR;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ---------------------------------------------------------
+   PRE-RENDERED SPRITES
+   All expensive drawing (glow, strokes, gradients) happens
+   ONCE, up front, onto small offscreen canvases. Every frame
+   we just drawImage() those sprites, which is very cheap and
+   keeps things smooth even on modest laptops.
+--------------------------------------------------------- */
+
+function makeDotSprite(size) {
+  const c = document.createElement('canvas');
+  const s = Math.ceil(size * 5);
+  c.width = s;
+  c.height = s;
+  const cx = c.getContext('2d');
+  const grad = cx.createRadialGradient(s/2, s/2, 0, s/2, s/2, size * 2.2);
+  grad.addColorStop(0, 'rgba(220,242,255,1)');
+  grad.addColorStop(0.4, 'rgba(120,195,255,0.55)');
+  grad.addColorStop(1, 'rgba(60,150,255,0)');
+  cx.fillStyle = grad;
+  cx.beginPath();
+  cx.arc(s/2, s/2, size * 2.2, 0, Math.PI * 2);
+  cx.fill();
+  return c;
+}
+
+// Draws one faceted ice spike: a long tapered blade with a bright
+// centerline ridge and small flared barbs partway up, like a shard of ice.
+function drawSpike(cx, len, baseWidth, colorMain, colorHighlight, withBarbs, bladeGradient) {
+  const tipLen = len * 0.12; // sharp point at the very top
+  const shaftEnd = len - tipLen;
+  const w = baseWidth;
+
+  // --- main blade (tapered quadrilateral + sharp tip) ---
+  cx.beginPath();
+  cx.moveTo(-w / 2, 0);
+  cx.lineTo(-w * 0.28, -shaftEnd);
+  cx.lineTo(0, -len);
+  cx.lineTo(w * 0.28, -shaftEnd);
+  cx.lineTo(w / 2, 0);
+  cx.closePath();
+  cx.fillStyle = bladeGradient || colorMain;
+  cx.fill();
+
+  // --- bright centerline ridge, gives the faceted/engraved look ---
+  cx.beginPath();
+  cx.moveTo(0, 0);
+  cx.lineTo(0, -len);
+  cx.lineWidth = Math.max(0.5, w * 0.14);
+  cx.strokeStyle = colorHighlight;
+  cx.stroke();
+
+  // --- flared side barbs, like arrow fletching partway up the shaft ---
+  if (withBarbs) {
+    const spots = [0.42, 0.68];
+    for (const t of spots) {
+      const spot = len * t;
+      const barbLen = len * 0.22 * (1 - t * 0.4);
+      const barbW = w * 0.5;
+
+      for (const side of [1, -1]) {
+        cx.save();
+        cx.translate(side * w * 0.22, -spot);
+        cx.rotate(side * Math.PI / 3.2);
+        cx.beginPath();
+        cx.moveTo(0, 0);
+        cx.lineTo(-barbW * 0.4, -barbLen * 0.35);
+        cx.lineTo(0, -barbLen);
+        cx.lineTo(barbW * 0.4, -barbLen * 0.35);
+        cx.closePath();
+        cx.fillStyle = colorMain;
+        cx.fill();
+        cx.beginPath();
+        cx.moveTo(0, 0);
+        cx.lineTo(0, -barbLen);
+        cx.lineWidth = Math.max(0.4, w * 0.08);
+        cx.strokeStyle = colorHighlight;
+        cx.stroke();
+        cx.restore();
+      }
+    }
+  }
+}
+
+function makeCrystalSprite(size) {
+  const s = Math.ceil(size * 4.6);
+  const c = document.createElement('canvas');
+  c.width = s;
+  c.height = s;
+  const cx = c.getContext('2d');
+  cx.translate(s / 2, s / 2);
+  cx.lineCap = 'round';
+  cx.lineJoin = 'round';
+
+  const mainLen = size;
+  const mainWidth = size * 0.16;
+  const secLen = size * 0.5;
+  const secWidth = size * 0.1;
+
+  const deepColor = 'rgba(20,70,190,0.97)';
+  const midColor = 'rgba(90,170,255,0.97)';
+  const highlightColor = 'rgba(210,245,255,1)';
+
+  // ---- outer crystal-blue aura ----
+  cx.save();
+  cx.globalAlpha = 0.45;
+  cx.filter = `blur(${Math.max(1.5, size * 0.1)}px)`;
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i);
+    drawSpike(cx, mainLen, mainWidth, 'rgba(40,130,255,0.9)', 'rgba(140,215,255,0.95)', true);
+    cx.restore();
+  }
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i + Math.PI / 6);
+    drawSpike(cx, secLen, secWidth, 'rgba(40,130,255,0.9)', 'rgba(140,215,255,0.95)', false);
+    cx.restore();
+  }
+  cx.restore();
+
+  // ---- soft blue glow pass, adds depth ----
+  cx.save();
+  cx.globalAlpha = 0.65;
+  cx.filter = `blur(${Math.max(0.6, size * 0.03)}px)`;
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i);
+    drawSpike(cx, mainLen, mainWidth, deepColor, midColor, true);
+    cx.restore();
+  }
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i + Math.PI / 6);
+    drawSpike(cx, secLen, secWidth, deepColor, midColor, false);
+    cx.restore();
+  }
+  cx.restore();
+
+  // ---- crisp facets: 6 long main spikes + 6 short secondary spikes ----
+  const mainBladeGrad = cx.createLinearGradient(0, -mainLen, 0, 0);
+  mainBladeGrad.addColorStop(0, 'rgba(235,250,255,1)');
+  mainBladeGrad.addColorStop(0.25, 'rgba(120,200,255,1)');
+  mainBladeGrad.addColorStop(0.6, 'rgba(35,140,235,0.98)');
+  mainBladeGrad.addColorStop(1, 'rgba(15,80,190,0.95)');
+
+  const secBladeGrad = cx.createLinearGradient(0, -secLen, 0, 0);
+  secBladeGrad.addColorStop(0, 'rgba(230,248,255,1)');
+  secBladeGrad.addColorStop(0.4, 'rgba(110,195,255,1)');
+  secBladeGrad.addColorStop(1, 'rgba(25,110,210,0.95)');
+
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i);
+    drawSpike(cx, mainLen, mainWidth, deepColor, highlightColor, true, mainBladeGrad);
+    cx.restore();
+  }
+  for (let i = 0; i < 6; i++) {
+    cx.save();
+    cx.rotate((Math.PI / 3) * i + Math.PI / 6);
+    drawSpike(cx, secLen, secWidth, deepColor, highlightColor, false, secBladeGrad);
+    cx.restore();
+  }
+
+  // ---- brilliant glowing core, where all facets meet ----
+  cx.save();
+  const coreR = size * 0.16;
+  const coreGlow = cx.createRadialGradient(0, 0, 0, 0, 0, coreR * 3.5);
+  coreGlow.addColorStop(0, 'rgba(230,248,255,1)');
+  coreGlow.addColorStop(0.4, 'rgba(120,200,255,0.6)');
+  coreGlow.addColorStop(1, 'rgba(80,170,255,0)');
+  cx.fillStyle = coreGlow;
+  cx.beginPath();
+  cx.arc(0, 0, coreR * 3.5, 0, Math.PI * 2);
+  cx.fill();
+
+  cx.beginPath();
+  cx.arc(0, 0, coreR * 0.6, 0, Math.PI * 2);
+  cx.fillStyle = 'rgba(255,255,255,1)';
+  cx.fill();
+  cx.restore();
+
+  return c;
+}
+
+// A small set of reusable sprite variants (not one sprite per flake)
+const DOT_SPRITES = [makeDotSprite(1.2), makeDotSprite(2), makeDotSprite(2.8)];
+const CRYSTAL_SPRITES = [makeCrystalSprite(13), makeCrystalSprite(18), makeCrystalSprite(24)];
+
+/* ---------------------------------------------------------
+   STARS
+--------------------------------------------------------- */
+const stars = [];
+const STAR_COUNT = 50;
+for (let i = 0; i < STAR_COUNT; i++) {
+  stars.push({
+    x: Math.random() * width,
+    y: Math.random() * height,
+    r: Math.random() * 1.1 + 0.2,
+    baseAlpha: Math.random() * 0.5 + 0.15,
+    twinkleSpeed: Math.random() * 0.02 + 0.005,
+    phase: Math.random() * Math.PI * 2
+  });
+}
+
+function drawStars() {
+  for (const s of stars) {
+    const alpha = s.baseAlpha + Math.sin(time * s.twinkleSpeed + s.phase) * 0.15;
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(210,235,255,1)';
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------------------------------------------------------
+   INTERACTIVITY
+   - Snow gently drifts away from the cursor as it moves
+   - A soft glowing light follows the cursor
+   - Clicking/tapping bursts a little shower of sparkles
+--------------------------------------------------------- */
+const mouse = { x: -9999, y: -9999, active: false };
+let mouseIdleTimer = null;
+
+function setMouse(x, y) {
+  mouse.x = x;
+  mouse.y = y;
+  mouse.active = true;
+  clearTimeout(mouseIdleTimer);
+  mouseIdleTimer = setTimeout(() => { mouse.active = false; }, 2500);
+}
+
+window.addEventListener('mousemove', (e) => setMouse(e.clientX, e.clientY));
+window.addEventListener('touchmove', (e) => {
+  if (e.touches && e.touches[0]) setMouse(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: true });
+window.addEventListener('mouseleave', () => { mouse.active = false; });
+
+// -- click / tap sparkle burst --
+const sparkles = [];
+function spawnBurst(x, y) {
+  const count = 16;
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const speed = 1 + Math.random() * 2.2;
+    sparkles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.012 + Math.random() * 0.012,
+      size: 1.5 + Math.random() * 2.5,
+      sprite: DOT_SPRITES[Math.floor(Math.random() * DOT_SPRITES.length)]
+    });
+  }
+  // a few larger crystal sparkles mixed in for sparkle-magic feel
+  for (let i = 0; i < 3; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.6 + Math.random() * 1.2;
+    sparkles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      decay: 0.008 + Math.random() * 0.006,
+      size: 1,
+      sprite: CRYSTAL_SPRITES[0],
+      spin: (Math.random() - 0.5) * 0.05,
+      rotation: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+function handlePointerDown(x, y) {
+  spawnBurst(x, y);
+}
+window.addEventListener('click', (e) => handlePointerDown(e.clientX, e.clientY));
+window.addEventListener('touchstart', (e) => {
+  if (e.touches && e.touches[0]) handlePointerDown(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: true });
+
+function updateSparkles() {
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const p = sparkles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    p.life -= p.decay;
+    if (p.rotation !== undefined) p.rotation += p.spin;
+    if (p.life <= 0) sparkles.splice(i, 1);
+  }
+}
+
+function drawSparkles() {
+  for (const p of sparkles) {
+    const sprite = p.sprite;
+    const half = (sprite.width / 2) * (p.spin !== undefined ? 0.5 : p.size * 0.4 + 0.4);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.translate(p.x, p.y);
+    if (p.rotation !== undefined) ctx.rotate(p.rotation);
+    ctx.drawImage(sprite, -half, -half, half * 2, half * 2);
+    ctx.restore();
+  }
+}
+
+function drawCursorGlow() {
+  if (!mouse.active) return;
+  const r = 90;
+  const grad = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, r);
+  grad.addColorStop(0, 'rgba(150,210,255,0.16)');
+  grad.addColorStop(1, 'rgba(150,210,255,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+
+const FLAKE_COUNT = 110; // reduced count + sprite rendering keeps this smooth
+const flakes = [];
+
+function createFlake(initial) {
+  const depth = Math.random(); // 0 = far, 1 = near
+  const shaped = depth > 0.55;
+  const spriteSet = shaped ? CRYSTAL_SPRITES : DOT_SPRITES;
+  const spriteIndex = Math.min(spriteSet.length - 1, Math.floor(depth * spriteSet.length));
+
+  return {
+    x: Math.random() * width,
+    y: initial ? Math.random() * height : -20,
+    depth,
+    sprite: spriteSet[spriteIndex],
+    speedY: depth * 1.1 + 0.35,
+    speedX: (Math.random() - 0.5) * 0.3,
+    swaySpeed: Math.random() * 0.015 + 0.005,
+    swayAmount: Math.random() * 1.2 + 0.3,
+    swayPhase: Math.random() * Math.PI * 2,
+    opacity: depth * 0.5 + 0.4,
+    rotation: Math.random() * Math.PI * 2,
+    rotationSpeed: (Math.random() - 0.5) * 0.008
+  };
+}
+
+for (let i = 0; i < FLAKE_COUNT; i++) {
+  flakes.push(createFlake(true));
+}
+// draw far flakes first, near ones on top — sort once, not every frame
+flakes.sort((a, b) => a.depth - b.depth);
+
+let time = 0;
+
+function drawFlake(f) {
+  const sprite = f.sprite;
+  const half = sprite.width / 2;
+  ctx.save();
+  ctx.globalAlpha = f.opacity;
+  ctx.translate(f.x, f.y);
+  ctx.rotate(f.rotation);
+  ctx.drawImage(sprite, -half, -half);
+  ctx.restore();
+}
+
+function update() {
+  time += 1;
+  const influenceR = 130;
+  const influenceR2 = influenceR * influenceR;
+
+  for (const f of flakes) {
+    f.swayPhase += f.swaySpeed;
+    f.y += f.speedY;
+    f.x += f.speedX + Math.sin(f.swayPhase) * f.swayAmount * 0.05;
+    f.rotation += f.rotationSpeed;
+
+    // gentle drift away from the cursor
+    if (mouse.active) {
+      const dx = f.x - mouse.x;
+      const dy = f.y - mouse.y;
+      const dist2 = dx * dx + dy * dy;
+      if (dist2 < influenceR2 && dist2 > 0.01) {
+        const dist = Math.sqrt(dist2);
+        const force = (1 - dist / influenceR) * 1.6;
+        f.x += (dx / dist) * force;
+        f.y += (dy / dist) * force;
+      }
+    }
+
+    if (f.y > height + 20) {
+      f.y = -20;
+      f.x = Math.random() * width;
+    }
+    if (f.x > width + 10) f.x = -10;
+    if (f.x < -10) f.x = width + 10;
+  }
+
+  updateSparkles();
+}
+
+function render() {
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#030510';
+  ctx.fillRect(0, 0, width, height);
+
+  drawStars();
+  drawCursorGlow();
+  for (const f of flakes) drawFlake(f);
+  drawSparkles();
+
+  update();
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
