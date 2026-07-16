@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Devil Wings Animation</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #fff;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 50, 50, 0.6);
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            font-size: 14px;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="ui">Hold click to unleash power</div>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height, cx, cy;
+        // How much vertical space the figure needs at scale = 1,
+        // measured from the anchor point (0,0):
+        //   wings/horns reach ~ -300 upward
+        //   tail reaches   ~ +430 downward
+        const NEEDED_ABOVE = 320;
+        const NEEDED_BELOW = 450;
+        const NEEDED_WIDTH = 700; // roughly half-width needed on each side
+
+        let sceneScale = 1;
+        let anchorY = 0; // where the figure's origin sits, in screen space
+
+        const particles = [];
+
+        // --- Burning-white-to-fire background transition ---
+        // A separate white "paper" layer sits on top of the permanent dark
+        // fire background. Over a few seconds, irregular burnt holes spread
+        // across it (with a glowing orange/charred edge) until it's fully
+        // gone, revealing the original dark red/black vignette underneath.
+        const burnLayer = document.createElement('canvas');
+        const burnCtx = burnLayer.getContext('2d');
+        let burnOrigins = [];
+        let burnComplete = false;
+
+        function setupBurnOrigins() {
+            burnOrigins = [];
+            const diag = Math.sqrt(width * width + height * height);
+
+            // Start the burn from a single corner, like a real sheet of
+            // paper catching fire at one edge and spreading across.
+            const corners = [
+                { x: 0, y: 0 },
+                { x: width, y: 0 },
+                { x: 0, y: height },
+                { x: width, y: height }
+            ];
+            const corner = corners[Math.floor(Math.random() * corners.length)];
+
+            burnOrigins.push({
+                x: corner.x,
+                y: corner.y,
+                delay: 300,
+                speed: diag * 0.00013, // px/ms — slower, more realistic spread
+                maxRadius: diag * 1.05,
+                seed1: Math.random() * Math.PI * 2,
+                seed2: Math.random() * Math.PI * 2,
+                seed3: Math.random() * Math.PI * 2
+            });
+            burnComplete = false;
+        }
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            burnLayer.width = width;
+            burnLayer.height = height;
+            cx = width / 2;
+            setupBurnOrigins();
+
+            // Fit the whole figure inside the viewport, both vertically and
+            // horizontally, shrinking it down (never enlarging past 1) so
+            // nothing gets clipped off-screen.
+            const margin = 20;
+            const availableHeight = height - margin * 2;
+            const scaleForHeight = availableHeight / (NEEDED_ABOVE + NEEDED_BELOW);
+            const scaleForWidth = (width - margin * 2) / (NEEDED_WIDTH * 2);
+            sceneScale = Math.min(1, scaleForHeight, scaleForWidth);
+
+            // Anchor point: leave NEEDED_ABOVE*scale of room above it and
+            // NEEDED_BELOW*scale of room below it, centered in the leftover space.
+            const usedHeight = (NEEDED_ABOVE + NEEDED_BELOW) * sceneScale;
+            const topGap = (height - usedHeight) / 2;
+            anchorY = topGap + NEEDED_ABOVE * sceneScale;
+
+            cy = anchorY;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Ember {
+            constructor() {
+                this.reset(true);
+            }
+            reset(randomY = false) {
+                this.x = Math.random() * width;
+                this.y = randomY ? Math.random() * height : height + 10;
+                this.vx = (Math.random() - 0.5) * 1.5;
+                this.vy = (Math.random() * -3) - 1;
+                this.size = Math.random() * 3 + 1;
+                this.life = Math.random() * 0.8 + 0.2;
+                this.decay = Math.random() * 0.008 + 0.003;
+                this.hue = Math.random() * 20 + 350; // Red to dark orange
+                if (this.hue > 360) this.hue -= 360;
+            }
+            update(dt) {
+                this.x += this.vx * (dt / 16);
+                this.y += this.vy * (dt / 16);
+                this.life -= this.decay * (dt / 16);
+                this.vx += (Math.random() - 0.5) * 0.1;
+                if (this.life <= 0) this.reset();
+            }
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 100%, 50%, ${this.life})`;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = `hsla(${this.hue}, 100%, 50%, ${this.life})`;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        for (let i = 0; i < 150; i++) particles.push(new Ember());
+
+        let targetMouse = { x: 0, y: 0 };
+        let currentMouse = { x: 0, y: 0 };
+        targetMouse.x = window.innerWidth / 2;
+        targetMouse.y = window.innerHeight / 2;
+        currentMouse.x = targetMouse.x;
+        currentMouse.y = targetMouse.y;
+        window.addEventListener('mousemove', (e) => {
+            targetMouse.x = e.clientX;
+            targetMouse.y = e.clientY;
+        });
+
+        let flapPhase = 0;
+        let targetFlapSpeed = 0.0025;
+        let currentFlapSpeed = 0.0025;
+        let time = 0;
+        let intensity = 0;
+
+        const setAggressive = () => targetFlapSpeed = 0.012;
+        const setCalm = () => targetFlapSpeed = 0.0025;
+
+        window.addEventListener('mousedown', setAggressive);
+        window.addEventListener('mouseup', setCalm);
+        window.addEventListener('touchstart', (e) => {
+            targetMouse.x = e.touches[0].clientX;
+            targetMouse.y = e.touches[0].clientY;
+            setAggressive();
+        });
+        window.addEventListener('touchend', setCalm);
+
+        function drawWing(ctx, isLeft) {
+            const dir = isLeft ? -1 : 1;
+            const rootX = 60 * dir;
+            const rootY = -40;
+
+            const flapSine = Math.sin(flapPhase);
+            const flapCos = Math.cos(flapPhase);
+
+            // 3D folding effect during flap
+            const scaleX = 1 - Math.abs(flapSine) * 0.25 * (1 + intensity * 0.5);
+
+            // Dynamic wing joints
+            const angleRS = (-Math.PI / 6) + flapSine * (0.3 + intensity * 0.2);
+            const angleST = (-Math.PI / 12) + Math.sin(flapPhase - 0.6) * (0.4 + intensity * 0.2);
+
+            const lenRS = 180;
+            const lenST = 260;
+
+            ctx.save();
+            ctx.translate(rootX, rootY);
+            ctx.scale(scaleX, 1);
+
+            // Shoulders and Tips
+            const shoulderX = Math.cos(angleRS) * lenRS * dir;
+            const shoulderY = Math.sin(angleRS) * lenRS;
+
+            const tipX = shoulderX + Math.cos(angleST) * lenST * dir;
+            const tipY = shoulderY + Math.sin(angleST) * lenST;
+
+            // Wing fingers for the jagged bottom edge
+            const f1Angle = angleRS + 0.6;
+            const f1Len = 300;
+            const f1X = Math.cos(f1Angle) * f1Len * dir;
+            const f1Y = Math.sin(f1Angle) * f1Len;
+
+            const f2Angle = angleRS + 1.2;
+            const f2Len = 220;
+            const f2X = Math.cos(f2Angle) * f2Len * dir;
+            const f2Y = Math.sin(f2Angle) * f2Len;
+
+            const f3Angle = angleRS + 1.7;
+            const f3Len = 130;
+            const f3X = Math.cos(f3Angle) * f3Len * dir;
+            const f3Y = Math.sin(f3Angle) * f3Len;
+
+            // Draw Webbing
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(shoulderX, shoulderY);
+            ctx.lineTo(tipX, tipY);
+
+            const webDepth = 35;
+            ctx.quadraticCurveTo((tipX + f1X) / 2 - webDepth * dir, (tipY + f1Y) / 2 - webDepth, f1X, f1Y);
+            ctx.quadraticCurveTo((f1X + f2X) / 2 - webDepth * dir, (f1Y + f2Y) / 2 - webDepth, f2X, f2Y);
+            ctx.quadraticCurveTo((f2X + f3X) / 2 - webDepth * dir, (f2Y + f3Y) / 2 - webDepth, f3X, f3Y);
+            ctx.quadraticCurveTo((f3X) / 2 - webDepth * dir, (f3Y) / 2 + webDepth / 2, 0, 40);
+            ctx.closePath();
+
+            // High-fidelity Gradient
+            const grad = ctx.createLinearGradient(0, 0, tipX, tipY);
+            grad.addColorStop(0, '#5a0000');
+            grad.addColorStop(0.5, '#b00000');
+            grad.addColorStop(1, '#ff1a1a');
+            ctx.fillStyle = grad;
+
+            ctx.shadowColor = `rgba(255, 0, 0, ${0.5 + intensity * 0.5})`;
+            ctx.shadowBlur = 20 + intensity * 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Draw Bones Structure
+            ctx.beginPath();
+            ctx.moveTo(0, 0); ctx.lineTo(shoulderX, shoulderY); ctx.lineTo(tipX, tipY);
+            ctx.moveTo(0, 0); ctx.lineTo(f1X, f1Y);
+            ctx.moveTo(0, 0); ctx.lineTo(f2X, f2Y);
+            ctx.moveTo(0, 0); ctx.lineTo(f3X, f3Y);
+
+            ctx.strokeStyle = '#2a0000';
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ff4d4d';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawHorns(ctx) {
+            // Aggressive twitching if intensity is high
+            const sway = Math.sin(time * 0.0015) * 0.04 + (Math.random() - 0.5) * intensity * 0.05;
+
+            ctx.save();
+            ctx.translate(0, -120);
+            ctx.rotate(sway);
+
+            const drawHorn = (isLeft) => {
+                const dir = isLeft ? -1 : 1;
+                ctx.beginPath();
+                ctx.moveTo(25 * dir, 0);
+                ctx.quadraticCurveTo(55 * dir, -40, 20 * dir, -90);
+                ctx.quadraticCurveTo(30 * dir, -30, 5 * dir, 0);
+                ctx.closePath();
+
+                const grad = ctx.createLinearGradient(55 * dir, -90, 5 * dir, 0);
+                grad.addColorStop(0, '#ff1a1a');
+                grad.addColorStop(0.5, '#900000');
+                grad.addColorStop(1, '#2a0000');
+
+                ctx.fillStyle = grad;
+                ctx.shadowColor = `rgba(255, 0, 0, ${0.5 + intensity * 0.5})`;
+                ctx.shadowBlur = 15;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                ctx.strokeStyle = '#1a0000';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            };
+
+            drawHorn(true);
+            drawHorn(false);
+
+            ctx.restore();
+        }
+
+        function drawTail(ctx) {
+            const startX = 0;
+            const startY = 80;
+
+            const points = [];
+            const numPoints = 60;
+            const tailLength = 350;
+
+            for (let i = 0; i <= numPoints; i++) {
+                const t = i / numPoints;
+                // Complex swaying motion combining time, segment position, and click intensity
+                const sway = Math.sin(time * 0.0015 - t * 4) * (80 + intensity * 40);
+                const curveX = Math.sin(t * Math.PI * 1.3) * 160 * -1; // Signature S-Curve
+                const x = startX + sway + curveX;
+                const y = startY + t * tailLength;
+                points.push({ x, y });
+            }
+
+            // Draw thick tail body
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i <= numPoints; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+
+            ctx.strokeStyle = '#900000';
+            ctx.lineWidth = 16;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.shadowColor = `rgba(255, 0, 0, ${0.4 + intensity * 0.4})`;
+            ctx.shadowBlur = 25;
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ff1a1a';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // Draw sharp arrow tip
+            const lastP = points[numPoints];
+            const prevP = points[numPoints - 2];
+            const angle = Math.atan2(lastP.y - prevP.y, lastP.x - prevP.x);
+
+            ctx.save();
+            ctx.translate(lastP.x, lastP.y);
+            ctx.rotate(angle);
+
+            ctx.beginPath();
+            ctx.moveTo(35, 0); // Sharp point
+            ctx.lineTo(-25, -25); // Top barb
+            ctx.lineTo(-10, 0); // Inner center
+            ctx.lineTo(-25, 25); // Bottom barb
+            ctx.closePath();
+
+            ctx.fillStyle = '#ff1a1a';
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 20 + intensity * 10;
+            ctx.fill();
+            ctx.strokeStyle = '#4a0000';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // Draws the white layer with organic burnt holes spreading from each
+        // origin. Returns true once every origin has grown enough to cover
+        // the whole screen (i.e. the white is entirely gone).
+        function drawBurnLayer(t) {
+            burnCtx.clearRect(0, 0, width, height);
+            burnCtx.fillStyle = '#ffffff';
+            burnCtx.fillRect(0, 0, width, height);
+
+            let allDone = true;
+            const points = 28;
+
+            // Punch jagged, irregular holes out of the white sheet.
+            burnCtx.globalCompositeOperation = 'destination-out';
+            burnOrigins.forEach(o => {
+                const elapsed = t - o.delay;
+                if (elapsed <= 0) { allDone = false; return; }
+                const radius = Math.min(o.maxRadius, elapsed * o.speed);
+                if (radius < o.maxRadius) allDone = false;
+                if (radius <= 0) return;
+
+                burnCtx.beginPath();
+                for (let i = 0; i <= points; i++) {
+                    const angle = (i / points) * Math.PI * 2;
+                    const jitter = 1
+                        + 0.22 * Math.sin(angle * 5 + o.seed1)
+                        + 0.13 * Math.cos(angle * 9 + o.seed2)
+                        + 0.08 * Math.sin(angle * 17 + t * 0.0012 + o.seed3);
+                    const r = radius * jitter;
+                    const px = o.x + Math.cos(angle) * r;
+                    const py = o.y + Math.sin(angle) * r;
+                    if (i === 0) burnCtx.moveTo(px, py);
+                    else burnCtx.lineTo(px, py);
+                }
+                burnCtx.closePath();
+                burnCtx.fill();
+            });
+
+            // Charred edge + flickering flame tongues along the burn front.
+            burnCtx.globalCompositeOperation = 'source-over';
+            burnOrigins.forEach(o => {
+                const elapsed = t - o.delay;
+                if (elapsed <= 0) return;
+                const radius = Math.min(o.maxRadius, elapsed * o.speed);
+                if (radius <= 0 || radius >= o.maxRadius) return;
+
+                // Thin dark charred band just inside the burnt edge.
+                const charOuter = radius * 1.12;
+                const charGrad = burnCtx.createRadialGradient(o.x, o.y, radius * 0.75, o.x, o.y, charOuter);
+                charGrad.addColorStop(0, 'rgba(0,0,0,0)');
+                charGrad.addColorStop(0.6, 'rgba(35, 10, 0, 0.85)');
+                charGrad.addColorStop(0.85, 'rgba(70, 20, 0, 0.6)');
+                charGrad.addColorStop(1, 'rgba(70, 20, 0, 0)');
+                burnCtx.fillStyle = charGrad;
+                burnCtx.fillRect(
+                    Math.max(0, o.x - charOuter), Math.max(0, o.y - charOuter),
+                    Math.min(width, o.x + charOuter) - Math.max(0, o.x - charOuter),
+                    Math.min(height, o.y + charOuter) - Math.max(0, o.y - charOuter)
+                );
+
+                // Flickering flame tongues licking along the advancing edge.
+                const flamePoints = 46;
+                burnCtx.save();
+                burnCtx.globalCompositeOperation = 'lighter';
+                for (let i = 0; i < flamePoints; i++) {
+                    const angle = (i / flamePoints) * Math.PI * 2;
+                    const jitter = 1
+                        + 0.22 * Math.sin(angle * 5 + o.seed1)
+                        + 0.13 * Math.cos(angle * 9 + o.seed2)
+                        + 0.08 * Math.sin(angle * 17 + t * 0.0012 + o.seed3);
+                    const r = radius * jitter;
+                    const ex = o.x + Math.cos(angle) * r;
+                    const ey = o.y + Math.sin(angle) * r;
+                    if (ex < -60 || ex > width + 60 || ey < -60 || ey > height + 60) continue;
+
+                    const rndSeed = Math.sin(i * 12.9898 + o.seed1 * 7.233) * 43758.5453;
+                    const frac = rndSeed - Math.floor(rndSeed);
+
+                    const flicker = 0.5 + 0.5 * Math.sin(t * 0.011 + i * 2.3 + frac * 10);
+                    const flameLen = (22 + frac * 34) * (0.5 + 0.5 * flicker);
+                    const sway = Math.sin(t * 0.007 + i * 1.7 + frac * 6) * 9;
+
+                    const dirX = Math.cos(angle), dirY = Math.sin(angle);
+                    const perpX = -dirY, perpY = dirX;
+
+                    const tipX = ex + dirX * flameLen + perpX * sway;
+                    const tipY = ey + dirY * flameLen + perpY * sway;
+                    const midX = ex + dirX * flameLen * 0.55 + perpX * sway * 0.5;
+                    const midY = ey + dirY * flameLen * 0.55 + perpY * sway * 0.5;
+
+                    const baseWidth = 5 + frac * 4;
+                    const b1x = ex + perpX * baseWidth, b1y = ey + perpY * baseWidth;
+                    const b2x = ex - perpX * baseWidth, b2y = ey - perpY * baseWidth;
+
+                    burnCtx.beginPath();
+                    burnCtx.moveTo(b1x, b1y);
+                    burnCtx.quadraticCurveTo(midX + perpX * baseWidth * 0.3, midY + perpY * baseWidth * 0.3, tipX, tipY);
+                    burnCtx.quadraticCurveTo(midX - perpX * baseWidth * 0.3, midY - perpY * baseWidth * 0.3, b2x, b2y);
+                    burnCtx.closePath();
+
+                    const flameGrad = burnCtx.createLinearGradient(ex, ey, tipX, tipY);
+                    flameGrad.addColorStop(0, `rgba(120, 20, 0, ${0.55 + 0.35 * flicker})`);
+                    flameGrad.addColorStop(0.45, `rgba(255, 100, 0, ${0.65 + 0.3 * flicker})`);
+                    flameGrad.addColorStop(0.78, `rgba(255, 195, 60, ${0.5 + 0.3 * flicker})`);
+                    flameGrad.addColorStop(1, 'rgba(255, 250, 200, 0)');
+                    burnCtx.fillStyle = flameGrad;
+                    burnCtx.fill();
+                }
+                burnCtx.restore();
+            });
+
+            return allDone;
+        }
+
+        let lastTime = 0;
+        function animate(timestamp) {
+            requestAnimationFrame(animate);
+            if (!lastTime) lastTime = timestamp;
+            let dt = timestamp - lastTime;
+            if (dt > 50) dt = 16; // Prevent massive jumps if tab is inactive
+            lastTime = timestamp;
+
+            time += dt;
+
+            // Smoothly interpolate flap speed and calculate intensity factor
+            currentFlapSpeed += (targetFlapSpeed - currentFlapSpeed) * 0.05;
+            flapPhase += currentFlapSpeed * dt;
+            intensity = (currentFlapSpeed - 0.0025) / (0.012 - 0.0025);
+            intensity = Math.max(0, Math.min(1, intensity)); // clamp 0-1
+
+            // Smooth mouse tracking
+            currentMouse.x += (targetMouse.x - currentMouse.x) * 0.05;
+            currentMouse.y += (targetMouse.y - currentMouse.y) * 0.05;
+
+            // Base layer: the original dark fiery vignette (this is what
+            // gets revealed as the white paper burns away).
+            const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.8);
+            bgGrad.addColorStop(0, '#1a0000');
+            bgGrad.addColorStop(1, '#000000');
+            ctx.fillStyle = bgGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // Demonic Core Aura
+            const auraPulse = Math.abs(Math.sin(flapPhase)) * 0.15 + 0.1 + (intensity * 0.2);
+            const auraGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500);
+            auraGrad.addColorStop(0, `rgba(255, 0, 0, ${auraPulse})`);
+            auraGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = auraGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // On top: the white sheet, burning away in irregular patches to
+            // reveal the dark fire background underneath.
+            if (!burnComplete) {
+                const done = drawBurnLayer(time);
+                ctx.drawImage(burnLayer, 0, 0);
+                if (done) burnComplete = true;
+            }
+
+            // Render Ember Particles
+            particles.forEach(p => {
+                p.update(dt);
+                p.draw(ctx);
+            });
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            // Scale the whole figure down so it always fits on screen
+            // (tail included), then apply the usual cursor-follow tilt.
+            ctx.scale(sceneScale, sceneScale);
+
+            // Tilt character slightly towards cursor
+            const dx = currentMouse.x - cx;
+            const dy = currentMouse.y - cy;
+            const maxRotation = Math.PI / 12;
+            ctx.rotate(Math.max(-maxRotation, Math.min(maxRotation, dx * 0.0003)));
+            ctx.translate(0, dy * 0.02); // Subtle vertical tracking
+
+            drawTail(ctx);
+            drawWing(ctx, true);
+            drawWing(ctx, false);
+            drawHorns(ctx);
+
+            ctx.restore();
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+
+</html>
