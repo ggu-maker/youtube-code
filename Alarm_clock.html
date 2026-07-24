@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Fidelity Interactive Alarm Clock</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, #1a2a6c, #112 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Montserrat', 'Segoe UI', Tahoma, sans-serif;
+            cursor: grab;
+            user-select: none;
+        }
+        body:active {
+            cursor: grabbing;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 5%;
+            text-align: center;
+            color: #ecf0f1;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            z-index: 10;
+        }
+        h1 {
+            font-size: 3.5rem;
+            margin: 0;
+            text-shadow: 0 4px 15px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255,255,255,0.2);
+            letter-spacing: 2px;
+            font-weight: 900;
+            transition: all 0.2s;
+        }
+        p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-top: 10px;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.8);
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="ui-layer">
+        <h1 id="status-text">Sleepy Clock</h1>
+        <p id="instruction-text">Drag to throw. Spin the hands. Poke the bells or feet!</p>
+    </div>
+    <canvas id="clockCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('clockCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status-text');
+
+        // Polyfill for roundRect
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2;
+                if (h < 2 * r) r = h / 2;
+                this.beginPath();
+                this.moveTo(x + r, y);
+                this.arcTo(x + w, y, x + w, y + h, r);
+                this.arcTo(x + w, y + h, x, y + h, r);
+                this.arcTo(x, y + h, x, y, r);
+                this.arcTo(x, y, x + r, y, r);
+                this.closePath();
+                return this;
+            }
+        }
+
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let lastMouseX = 0, lastMouseY = 0;
+        let mouseSpeed = 0;
+        
+        let state = 'sleeping'; // sleeping, awake, tickled, alarming, angry, dizzy
+        let alarmIntensity = 1; 
+        
+        let clock = {
+            x: 0, y: 0,
+            vx: 0, vy: 0,
+            rotation: 0, vr: 0,
+            isDragging: false,
+            dragOffsetX: 0, dragOffsetY: 0
+        };
+
+        let timeOffset = 0; 
+        let isDraggingTime = false;
+        let lastTimeDragAngle = 0;
+        let timeSpinVelocity = 0;
+        let dizzyTimer = 0;
+
+        let leftLegAngle = 0, leftLegVr = 0;
+        let rightLegAngle = 0, rightLegVr = 0;
+        
+        let leftBellHit = 0;
+        let rightBellHit = 0;
+
+        let particles = [];
+        let lastMouseMoveTime = Date.now();
+        let frameCount = 0;
+        let tickleVelocity = 0;
+
+        let blinkValue = 0; 
+        let blinkTimer = 0;
+        let blinkTarget = 0;
+
+        let snoozeY = -180;
+        let snoozeVelocity = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            let dpr = window.devicePixelRatio || 1;
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(dpr, dpr);
+            
+            if (clock.x === 0 && clock.y === 0) {
+                clock.x = width / 2;
+                clock.y = height / 2;
+            }
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        mouseX = width / 2;
+        mouseY = height / 2;
+
+        window.addEventListener('mousemove', (e) => {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            
+            handleMove();
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+            
+            handleMove();
+        });
+
+        function handleMove() {
+            let dxRaw = mouseX - lastMouseX;
+            let dyRaw = mouseY - lastMouseY;
+            mouseSpeed = Math.sqrt(dxRaw*dxRaw + dyRaw*dyRaw);
+
+            lastMouseMoveTime = Date.now();
+
+            if (state === 'sleeping' && !clock.isDragging && !isDraggingTime) {
+                state = 'awake';
+                statusText.innerText = "Watching You...";
+            }
+
+            // Mouse coordinates relative to clock's rotated frame
+            let dx = mouseX - clock.x;
+            let dy = mouseY - clock.y;
+            let cos = Math.cos(-clock.rotation);
+            let sin = Math.sin(-clock.rotation);
+            let localX = dx * cos - dy * sin;
+            let localY = dx * sin + dy * cos;
+            
+            let distToCenter = Math.sqrt(localX*localX + localY*localY);
+
+            if (clock.isDragging) {
+                // Done in render loop for physics
+            } else if (isDraggingTime) {
+                let angle = Math.atan2(localY, localX);
+                let diff = angle - lastTimeDragAngle;
+                
+                if (diff > Math.PI) diff -= Math.PI * 2;
+                if (diff < -Math.PI) diff += Math.PI * 2;
+                
+                timeOffset += diff * (1000 * 60 * 60) / (Math.PI * 2);
+                lastTimeDragAngle = angle;
+                
+                timeSpinVelocity = diff;
+                dizzyTimer = 60; 
+                state = 'dizzy';
+                statusText.innerText = "TIME TRAVELER!";
+                statusText.style.color = "#a29bfe";
+            } else if (state === 'awake' && distToCenter < 140 && mouseSpeed > 30) {
+                // Tickling
+                tickleVelocity += mouseSpeed;
+                if (tickleVelocity > 400) {
+                    state = 'tickled';
+                    statusText.innerText = "Hehehe! That tickles!";
+                    statusText.style.color = "#f1c40f";
+                    statusText.style.textShadow = "0 0 20px #f1c40f, 0 4px 15px rgba(0,0,0,0.8)";
+                    tickleVelocity = 0;
+                    spawnBurst('hah', localX, localY);
+                    setTimeout(() => {
+                        if (state === 'tickled') {
+                            state = 'awake';
+                            statusText.innerText = "Watching You...";
+                            statusText.style.color = "#ecf0f1";
+                        }
+                    }, 1500);
+                }
+            } else {
+                tickleVelocity *= 0.9;
+            }
+        }
+
+        function handleDown(cx, cy) {
+            mouseX = cx;
+            mouseY = cy;
+
+            let dx = cx - clock.x;
+            let dy = cy - clock.y;
+            let cos = Math.cos(-clock.rotation);
+            let sin = Math.sin(-clock.rotation);
+            let localX = dx * cos - dy * sin;
+            let localY = dx * sin + dy * cos;
+            
+            let distToCenter = Math.sqrt(localX*localX + localY*localY);
+            
+            let hitSnooze = Math.abs(localX) < 50 && localY < snoozeY + 20 && localY > snoozeY - 30;
+            let hitLeftBell = Math.hypot(localX - (-125), localY - (-140)) < 75;
+            let hitRightBell = Math.hypot(localX - (125), localY - (-140)) < 75;
+            let hitLeftFoot = Math.hypot(localX - (-80), localY - 220) < 40;
+            let hitRightFoot = Math.hypot(localX - (80), localY - 220) < 40;
+
+            if (hitSnooze) {
+                snoozeVelocity = 20; 
+                if (state === 'alarming' || state === 'angry') {
+                    state = 'awake';
+                    statusText.innerText = "Snoozed. Thank you.";
+                    statusText.style.color = "#ecf0f1";
+                    alarmIntensity = 1;
+                } else {
+                    state = 'alarming';
+                    statusText.innerText = "WAKE UP!!!";
+                    statusText.style.color = "#ff4757";
+                    spawnBurst('burst', 0, -200);
+                }
+            } else if (hitLeftBell) {
+                leftBellHit = 20;
+                spawnBurst('burst', localX, localY);
+                statusText.innerText = "DING!";
+            } else if (hitRightBell) {
+                rightBellHit = 20;
+                spawnBurst('burst', localX, localY);
+                statusText.innerText = "DING!";
+            } else if (hitLeftFoot || hitRightFoot) {
+                clock.vy = -40; // jump
+                clock.vr = hitLeftFoot ? 0.3 : -0.3; // spin
+                spawnBurst('sweat', localX, localY);
+                statusText.innerText = "Ouch! My foot!";
+            } else if (distToCenter < 140) {
+                // Drag Time
+                isDraggingTime = true;
+                lastTimeDragAngle = Math.atan2(localY, localX);
+                state = 'dizzy'; 
+                dizzyTimer = 60;
+                statusText.innerText = "Whoa!";
+            } else if (distToCenter < 190) {
+                // Drag Body
+                clock.isDragging = true;
+                clock.dragOffsetX = dx;
+                clock.dragOffsetY = dy;
+                state = 'awake'; 
+                statusText.innerText = "Wheeeeee!";
+            }
+        }
+
+        window.addEventListener('mousedown', (e) => handleDown(e.clientX, e.clientY));
+        window.addEventListener('touchstart', (e) => handleDown(e.touches[0].clientX, e.touches[0].clientY));
+
+        function releaseDrag() {
+            if (clock.isDragging) {
+                clock.isDragging = false;
+                statusText.innerText = "Watching You...";
+            }
+            if (isDraggingTime) {
+                isDraggingTime = false;
+                if (state === 'dizzy' && dizzyTimer <= 0) {
+                    state = 'awake';
+                    statusText.innerText = "Watching You...";
+                }
+            }
+        }
+
+        window.addEventListener('mouseup', releaseDrag);
+        window.addEventListener('touchend', releaseDrag);
+
+        function spawnBurst(type, localX=0, localY=0) {
+            let count = type === 'burst' ? 30 : 15;
+            if (type === 'hah') count = 10;
+            
+            let cos = Math.cos(clock.rotation);
+            let sin = Math.sin(clock.rotation);
+            let px = clock.x + (localX * cos - localY * sin);
+            let py = clock.y + (localX * sin + localY * cos);
+
+            for(let i=0; i<count; i++) {
+                particles.push(new Particle(px, py, type));
+            }
+        }
+
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type; 
+                this.life = 1;
+                this.maxLife = 1;
+                
+                if (type === 'zzz') {
+                    this.vx = (Math.random() - 0.5) * 1.5;
+                    this.vy = -Math.random() * 2 - 1.5;
+                    this.life = 120 + Math.random() * 60;
+                    this.maxLife = this.life;
+                    this.size = 20 + Math.random() * 20;
+                    this.char = 'Z';
+                } else if (type === 'hah') {
+                    this.vx = (Math.random() - 0.5) * 6;
+                    this.vy = -Math.random() * 5 - 3;
+                    this.life = 50 + Math.random() * 30;
+                    this.maxLife = this.life;
+                    this.size = 20 + Math.random() * 20;
+                    this.char = Math.random() > 0.5 ? 'ha' : 'he';
+                } else if (type === 'burst') {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = 10 + Math.random() * 25;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                    this.life = 30 + Math.random() * 40;
+                    this.maxLife = this.life;
+                    this.size = 6 + Math.random() * 15;
+                    this.color = Math.random() > 0.5 ? '#f1c40f' : (Math.random() > 0.5 ? '#e74c3c' : '#fff');
+                } else if (type === 'sweat' || type === 'tear') {
+                    this.vx = (Math.random() - 0.5) * 15;
+                    this.vy = -Math.random() * 15 - 5;
+                    this.life = 30 + Math.random() * 40;
+                    this.maxLife = this.life;
+                    this.size = 6 + Math.random() * 10;
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+                
+                if (this.type === 'zzz' || this.type === 'hah') {
+                    this.x += Math.sin(this.life * 0.1) * 2; 
+                } else if (this.type === 'burst' || this.type === 'sweat' || this.type === 'tear') {
+                    this.vy += 0.8; 
+                }
+            }
+
+            draw(ctx) {
+                const alpha = Math.max(0, this.life / this.maxLife);
+                ctx.globalAlpha = alpha;
+                
+                if (this.type === 'zzz' || this.type === 'hah') {
+                    ctx.font = `bold ${this.size}px 'Montserrat', sans-serif`;
+                    ctx.fillStyle = this.type === 'zzz' ? '#82ccdd' : '#f8c291';
+                    ctx.fillText(this.char, this.x, this.y);
+                } else if (this.type === 'burst') {
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * alpha, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 10;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                } else if (this.type === 'sweat' || this.type === 'tear') {
+                    ctx.fillStyle = this.type === 'sweat' ? '#74b9ff' : '#0984e3';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI, false);
+                    ctx.lineTo(this.x, this.y - this.size * 2.5);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        function drawMetalBall(ctx, x, y, r, color1, color2, highlightColor) {
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = r * 0.3;
+            ctx.shadowOffsetY = r * 0.15;
+            
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = color2;
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+
+            let grad = ctx.createRadialGradient(x - r*0.3, y - r*0.3, r*0.05, x, y, r);
+            grad.addColorStop(0, highlightColor);
+            grad.addColorStop(0.4, color1);
+            grad.addColorStop(0.8, color2);
+            grad.addColorStop(1, '#111');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+            
+            let rim = ctx.createRadialGradient(x + r*0.3, y + r*0.3, r*0.5, x, y, r*1.1);
+            rim.addColorStop(0, 'rgba(255,255,255,0)');
+            rim.addColorStop(0.7, 'rgba(255,255,255,0)');
+            rim.addColorStop(1, 'rgba(255,255,255,0.5)');
+            ctx.fillStyle = rim;
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawCylinder(ctx, x, y, w, h, r, color1, color2) {
+            let grad = ctx.createLinearGradient(x, y, x + w, y);
+            grad.addColorStop(0, color2);
+            grad.addColorStop(0.2, color1);
+            grad.addColorStop(0.5, '#fff');
+            grad.addColorStop(0.8, color1);
+            grad.addColorStop(1, color2);
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+        }
+
+        function drawGlassReflection(ctx, r) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI*2);
+            ctx.clip();
+            
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.beginPath();
+            ctx.ellipse(-r*0.2, -r*0.4, r*1.2, r*0.7, Math.PI*0.1, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.beginPath();
+            ctx.ellipse(-r*0.4, -r*0.5, r*0.3, r*0.1, Math.PI*0.15, 0, Math.PI*2);
+            ctx.fill();
+            
+            let rim = ctx.createRadialGradient(0, 0, r*0.7, 0, 0, r);
+            rim.addColorStop(0, 'rgba(255,255,255,0)');
+            rim.addColorStop(0.8, 'rgba(255,255,255,0)');
+            rim.addColorStop(1, 'rgba(255,255,255,0.3)');
+            ctx.fillStyle = rim;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawClock() {
+            ctx.clearRect(0, 0, width, height);
+            
+            // State Timers
+            if (Date.now() - lastMouseMoveTime > 5000 && state === 'awake' && !clock.isDragging && !isDraggingTime) {
+                state = 'sleeping';
+                statusText.innerText = "Sleepy Clock";
+                statusText.style.color = "#ecf0f1";
+            }
+
+            if (state === 'dizzy') {
+                dizzyTimer--;
+                if (dizzyTimer <= 0 && !isDraggingTime) {
+                    state = 'awake';
+                    statusText.innerText = "Watching You...";
+                }
+            }
+
+            blinkTimer--;
+            if (blinkTimer <= 0) {
+                blinkTarget = 1;
+                if (blinkTimer < -5) {
+                    blinkTarget = 0;
+                    blinkTimer = 100 + Math.random() * 200;
+                }
+            }
+            blinkValue += (blinkTarget - blinkValue) * 0.4;
+
+            snoozeVelocity += ( -180 - snoozeY ) * 0.3; 
+            snoozeY += snoozeVelocity;
+            snoozeVelocity *= 0.7; 
+
+            if (leftBellHit > 0) leftBellHit--;
+            if (rightBellHit > 0) rightBellHit--;
+
+            // Clock Physics Update
+            let targetCenterX = width / 2;
+            let targetCenterY = height / 2;
+
+            if (clock.isDragging) {
+                let targetX = mouseX - clock.dragOffsetX;
+                let targetY = mouseY - clock.dragOffsetY;
+                clock.vx = targetX - clock.x;
+                clock.vy = targetY - clock.y;
+                clock.x = targetX;
+                clock.y = targetY;
+                clock.vr = clock.vx * 0.003;
+            } else {
+                clock.vx += (targetCenterX - clock.x) * 0.05;
+                clock.vy += (targetCenterY - clock.y) * 0.05;
+                
+                let radius = 180;
+                if (clock.x < radius) { clock.x = radius; clock.vx *= -0.5; clock.vr += 0.1; }
+                if (clock.x > width - radius) { clock.x = width - radius; clock.vx *= -0.5; clock.vr -= 0.1; }
+                if (clock.y < radius + 50) { clock.y = radius + 50; clock.vy *= -0.5; }
+                if (clock.y > height - radius - 50) { clock.y = height - radius - 50; clock.vy *= -0.5; }
+
+                clock.vx *= 0.85;
+                clock.vy *= 0.85;
+                
+                clock.x += clock.vx;
+                clock.y += clock.vy;
+                
+                clock.vr += (0 - clock.rotation) * 0.1;
+                clock.vr *= 0.85;
+            }
+            clock.rotation += clock.vr;
+
+            // Leg Physics Update
+            let swingForce = -clock.vx * 0.015 - clock.vr * 0.5;
+            leftLegVr += swingForce;
+            rightLegVr += swingForce;
+            
+            leftLegVr += (0 - leftLegAngle) * 0.1; 
+            rightLegVr += (0 - rightLegAngle) * 0.1;
+            
+            leftLegVr *= 0.85;
+            rightLegVr *= 0.85;
+            
+            leftLegAngle += leftLegVr;
+            rightLegAngle += rightLegVr;
+
+            leftLegAngle = Math.max(-Math.PI/2, Math.min(Math.PI/2, leftLegAngle));
+            rightLegAngle = Math.max(-Math.PI/2, Math.min(Math.PI/2, rightLegAngle));
+
+            // Particles Spawning
+            if (state === 'sleeping' && frameCount % 60 === 0) {
+                spawnBurst('zzz', 80, -120);
+            }
+            if ((state === 'alarming' || state === 'angry') && frameCount % 3 === 0) {
+                spawnBurst('sweat', (Math.random() - 0.5) * 250, -150);
+                if (state === 'angry' && Math.random() < 0.2) {
+                    spawnBurst('tear', (Math.random() - 0.5) * 120, 0);
+                }
+            }
+
+            // Draw Background Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                if (p.type === 'burst' || p.type === 'zzz' || p.type === 'hah') {
+                    p.update();
+                    p.draw(ctx);
+                    if (p.life <= 0) particles.splice(i, 1);
+                }
+            }
+
+            let shakeX = 0, shakeY = 0;
+            let bodyColor1 = '#e55039';
+            let bodyColor2 = '#b71540';
+            let highlightColor = '#ff7979';
+
+            if (state === 'alarming' || state === 'angry') {
+                shakeX = (Math.random() - 0.5) * 15 * alarmIntensity;
+                shakeY = (Math.random() - 0.5) * 15 * alarmIntensity;
+                if (frameCount % 6 < 3) {
+                    bodyColor1 = '#ff7675';
+                    bodyColor2 = '#d63031';
+                    highlightColor = '#ff9ff3';
+                }
+                if (state === 'angry') {
+                    bodyColor1 = '#ff0000';
+                    bodyColor2 = '#8b0000';
+                    highlightColor = '#ff4d4d';
+                }
+            }
+            
+            if (state === 'tickled') {
+                shakeX = Math.sin(frameCount * 0.8) * 8;
+                shakeY = Math.cos(frameCount * 1.5) * 4;
+            }
+
+            // Floor Shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.beginPath();
+            let shadowDist = Math.max(0, height/2 - clock.y);
+            let shadowScale = Math.max(0.2, 1 - shadowDist/500);
+            ctx.ellipse(width/2, height/2 + 220, 160 * shadowScale, 35 * shadowScale, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.translate(clock.x + shakeX, clock.y + shakeY);
+            ctx.rotate(clock.rotation);
+
+            // --- Draw Legs ---
+            ctx.save();
+            ctx.translate(-80, 160);
+            ctx.rotate(leftLegAngle);
+            drawCylinder(ctx, -15, -20, 30, 80, 15, '#7f8c8d', '#bdc3c7'); 
+            ctx.fillStyle = '#2d3436';
+            ctx.beginPath(); ctx.ellipse(0, 60, 40, 20, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#636e72';
+            ctx.beginPath(); ctx.ellipse(-10, 55, 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+
+            ctx.save();
+            ctx.translate(80, 160);
+            ctx.rotate(rightLegAngle);
+            drawCylinder(ctx, -15, -20, 30, 80, 15, '#7f8c8d', '#bdc3c7'); 
+            ctx.fillStyle = '#2d3436';
+            ctx.beginPath(); ctx.ellipse(0, 60, 40, 20, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#636e72';
+            ctx.beginPath(); ctx.ellipse(-10, 55, 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+
+            // --- Draw Bells ---
+            let bellAngle = (state === 'alarming' || state === 'angry') ? Math.sin(frameCount * 1.5 * alarmIntensity) * 0.6 : 0;
+            
+            function drawBell(x, rot, hitTimer) {
+                ctx.save();
+                ctx.translate(x, -140);
+                let hitWobble = hitTimer > 0 ? Math.sin(hitTimer * 2.0) * 0.5 : 0;
+                ctx.rotate(rot + bellAngle * (x < 0 ? 1 : -1) + hitWobble);
+                
+                ctx.fillStyle = '#2d3436';
+                ctx.beginPath(); ctx.roundRect(-10, 0, 20, 30, 5); ctx.fill();
+                drawMetalBall(ctx, 0, -20, 75, bodyColor1, bodyColor2, highlightColor);
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.beginPath(); ctx.rect(-80, -20, 160, 100); ctx.fill();
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = '#1e272e';
+                ctx.beginPath(); ctx.ellipse(0, -20, 75, 18, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#7f8c8d';
+                ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+
+            drawBell(-125, -0.4, leftBellHit);
+            drawBell(125, 0.4, rightBellHit);
+
+            // --- Draw Hammer ---
+            ctx.save();
+            ctx.translate(0, -180);
+            ctx.rotate((state === 'alarming' || state === 'angry') ? Math.sin(frameCount * 2.0 * alarmIntensity) * 0.9 : 0);
+            drawCylinder(ctx, -6, -50, 12, 50, 3, '#7f8c8d', '#bdc3c7');
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetY = 3;
+            drawCylinder(ctx, -25, -65, 50, 25, 6, '#95a5a6', '#ecf0f1');
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = '#7f8c8d';
+            ctx.beginPath(); ctx.arc(-25, -52.5, 8, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(25, -52.5, 8, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+
+            // --- Draw Snooze Button ---
+            ctx.save();
+            ctx.translate(0, snoozeY);
+            drawCylinder(ctx, -12, 0, 24, 30, 2, '#7f8c8d', '#bdc3c7');
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetY = 5;
+            let btnColor1 = (state === 'alarming' || state === 'angry') && frameCount % 10 < 5 ? '#ff4757' : '#eccc68';
+            ctx.shadowColor = 'transparent';
+            drawCylinder(ctx, -50, -20, 100, 25, 10, '#d1ccc0', btnColor1);
+            ctx.fillStyle = '#2f3542';
+            ctx.font = '900 14px Montserrat';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("SNOOZE", 0, -6);
+            ctx.restore();
+
+            // --- Draw Main Body ---
+            drawMetalBall(ctx, 0, 0, 180, bodyColor1, bodyColor2, highlightColor);
+
+            let bezelGrad = ctx.createLinearGradient(-150, -150, 150, 150);
+            bezelGrad.addColorStop(0, '#f1f2f6');
+            bezelGrad.addColorStop(0.5, '#a4b0be');
+            bezelGrad.addColorStop(1, '#dfe4ea');
+            ctx.fillStyle = bezelGrad;
+            ctx.beginPath(); ctx.arc(0, 0, 155, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.strokeStyle = '#57606f';
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.arc(0, 0, 145, 0, Math.PI * 2); ctx.stroke();
+
+            let faceGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 150);
+            faceGrad.addColorStop(0, '#ffffff');
+            faceGrad.addColorStop(1, '#f1f2f6');
+            ctx.fillStyle = faceGrad;
+            ctx.beginPath(); ctx.arc(0, 0, 145, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(0,0,0,0.03)';
+            ctx.lineWidth = 1;
+            for(let i=10; i<140; i+=10) {
+                ctx.beginPath(); ctx.arc(0, 0, i, 0, Math.PI * 2); ctx.stroke();
+            }
+
+            // --- Draw Clock Ticks & Numbers ---
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for(let i=1; i<=60; i++) {
+                let angle = (i * Math.PI / 30) - (Math.PI / 2);
+                let isHour = i % 5 === 0;
+                let outRadius = 140;
+                let inRadius = isHour ? 125 : 132;
+                
+                ctx.strokeStyle = isHour ? '#2d3436' : '#b2bec3';
+                ctx.lineWidth = isHour ? 6 : 3;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(angle) * inRadius, Math.sin(angle) * inRadius);
+                ctx.lineTo(Math.cos(angle) * outRadius, Math.sin(angle) * outRadius);
+                ctx.stroke();
+                
+                if (isHour) {
+                    let num = i / 5;
+                    let tx = Math.cos(angle) * 105;
+                    let ty = Math.sin(angle) * 105;
+                    ctx.font = '900 30px Montserrat';
+                    ctx.fillStyle = '#2d3436';
+                    ctx.fillText(num.toString(), tx, ty);
+                    ctx.fillStyle = '#636e72';
+                    ctx.fillText(num.toString(), tx - 1, ty - 1);
+                }
+            }
+
+            // --- Draw Clock Hands ---
+            const realNow = new Date();
+            const now = new Date(realNow.getTime() + timeOffset);
+            
+            let hr = now.getHours() % 12;
+            let min = now.getMinutes();
+            let sec = now.getSeconds();
+            let ms = now.getMilliseconds();
+            
+            if (state === 'alarming' || state === 'angry') {
+                hr += Math.random() * 6 * alarmIntensity;
+                min += Math.random() * 60 * alarmIntensity;
+                sec += Math.random() * 60 * alarmIntensity;
+            }
+
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 5;
+
+            // Hour
+            ctx.save();
+            ctx.rotate((hr + min/60) * Math.PI * 2 / 12);
+            ctx.fillStyle = '#2c3e50';
+            ctx.beginPath(); ctx.roundRect(-8, -80, 16, 100, 8); ctx.fill();
+            ctx.fillStyle = '#34495e';
+            ctx.beginPath(); ctx.roundRect(-4, -75, 4, 90, 4); ctx.fill();
+            ctx.restore();
+
+            // Minute
+            ctx.save();
+            ctx.rotate((min + sec/60) * Math.PI * 2 / 60);
+            ctx.fillStyle = '#2c3e50';
+            ctx.beginPath(); ctx.roundRect(-6, -110, 12, 140, 6); ctx.fill();
+            ctx.fillStyle = '#34495e';
+            ctx.beginPath(); ctx.roundRect(-3, -100, 3, 120, 3); ctx.fill();
+            ctx.restore();
+
+            // Second
+            ctx.save();
+            ctx.rotate((sec + ms/1000) * Math.PI * 2 / 60);
+            ctx.fillStyle = '#ff4757';
+            ctx.beginPath(); ctx.roundRect(-3, -120, 6, 160, 3); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 40, 10, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(0, 40, 4, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = '#f1c40f';
+            ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#f39c12';
+            ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+
+            // --- Draw Character Face ---
+            let targetEyeX = 0;
+            let targetEyeY = 0;
+            
+            let dx = mouseX - (clock.x + shakeX);
+            let dy = mouseY - (clock.y + shakeY);
+            let cosRot = Math.cos(-clock.rotation);
+            let sinRot = Math.sin(-clock.rotation);
+            let localMouseX = dx * cosRot - dy * sinRot;
+            let localMouseY = dx * sinRot + dy * cosRot;
+
+            if (state === 'awake' || state === 'tickled') {
+                let dist = Math.sqrt(localMouseX*localMouseX + localMouseY*localMouseY);
+                if (dist > 0) {
+                    targetEyeX = (localMouseX / dist) * Math.min(18, dist * 0.04);
+                    targetEyeY = (localMouseY / dist) * Math.min(18, dist * 0.04);
+                }
+            } else if (state === 'alarming' || state === 'angry') {
+                targetEyeX = (Math.random() - 0.5) * 20;
+                targetEyeY = (Math.random() - 0.5) * 20;
+            }
+
+            function drawEye(xOffset, yOffset, side) {
+                let isRight = side === 1;
+                
+                if (state === 'sleeping') {
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 6;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath(); 
+                    ctx.moveTo(xOffset - 25, yOffset + 5); 
+                    ctx.quadraticCurveTo(xOffset, yOffset + 25, xOffset + 25, yOffset + 5); 
+                    ctx.stroke();
+                    return;
+                }
+
+                if (state === 'dizzy') {
+                    ctx.strokeStyle = '#2d3436';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    let spiralAng = frameCount * 0.2 * (isRight ? 1 : -1) + timeSpinVelocity * 10;
+                    ctx.beginPath();
+                    for(let i=0; i<40; i++) {
+                        let r = i * 0.6;
+                        let a = spiralAng + i * 0.4;
+                        let px = xOffset + Math.cos(a)*r;
+                        let py = yOffset + Math.sin(a)*r;
+                        if (i===0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.stroke();
+                    return;
+                }
+
+                if (state === 'tickled') {
+                    ctx.strokeStyle = '#2c3e50';
+                    ctx.lineWidth = 8;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.beginPath();
+                    if (isRight) {
+                        ctx.moveTo(xOffset - 20, yOffset - 15);
+                        ctx.lineTo(xOffset + 10, yOffset);
+                        ctx.lineTo(xOffset - 20, yOffset + 15);
+                    } else {
+                        ctx.moveTo(xOffset + 20, yOffset - 15);
+                        ctx.lineTo(xOffset - 10, yOffset);
+                        ctx.lineTo(xOffset + 20, yOffset + 15);
+                    }
+                    ctx.stroke();
+                    return;
+                }
+
+                let scleraGrad = ctx.createRadialGradient(xOffset, yOffset, 10, xOffset, yOffset, 35);
+                scleraGrad.addColorStop(0, '#fff');
+                scleraGrad.addColorStop(1, '#dfe6e9');
+                ctx.fillStyle = scleraGrad;
+                ctx.strokeStyle = '#636e72';
+                ctx.lineWidth = 2;
+                
+                let eyeH = 40 * (1 - blinkValue);
+                if (eyeH < 2) eyeH = 2; 
+                
+                if (state === 'angry' || state === 'alarming') {
+                    eyeH *= 0.8;
+                }
+
+                ctx.beginPath(); ctx.ellipse(xOffset, yOffset, 32, eyeH, 0, 0, Math.PI * 2); 
+                ctx.fill(); ctx.stroke();
+
+                if (blinkValue < 0.8) {
+                    let pupilH = 18 * (1 - blinkValue);
+                    let pupilW = 18;
+                    if (state === 'angry' || state === 'alarming') {
+                        pupilW = 12; 
+                        pupilH = 12 * (1 - blinkValue);
+                    }
+
+                    let maxDist = 12;
+                    let dist = Math.sqrt(targetEyeX*targetEyeX + targetEyeY*targetEyeY);
+                    let ex = targetEyeX, ey = targetEyeY;
+                    if (dist > maxDist) {
+                        ex = (targetEyeX/dist) * maxDist;
+                        ey = (targetEyeY/dist) * maxDist;
+                    }
+
+                    ctx.fillStyle = '#2c3e50';
+                    ctx.beginPath(); 
+                    ctx.ellipse(xOffset + ex, yOffset + ey, pupilW, pupilH, 0, 0, Math.PI * 2); 
+                    ctx.fill();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath(); ctx.arc(xOffset + ex - pupilW*0.3, yOffset + ey - pupilH*0.3, pupilW*0.25, 0, Math.PI*2); ctx.fill();
+                }
+
+                if (state === 'angry' || state === 'alarming') {
+                    ctx.strokeStyle = '#2d3436';
+                    ctx.lineWidth = 8;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    let shakeOffset = (Math.random() - 0.5) * 4;
+                    if (isRight) {
+                        ctx.moveTo(xOffset - 35, yOffset - 30 + shakeOffset);
+                        ctx.lineTo(xOffset + 25, yOffset - 45 + shakeOffset);
+                    } else {
+                        ctx.moveTo(xOffset + 35, yOffset - 30 + shakeOffset);
+                        ctx.lineTo(xOffset - 25, yOffset - 45 + shakeOffset);
+                    }
+                    ctx.stroke();
+
+                    if (state === 'angry' && !isRight) {
+                        ctx.strokeStyle = '#e74c3c';
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(xOffset + 40, yOffset - 50);
+                        ctx.lineTo(xOffset + 50, yOffset - 60);
+                        ctx.lineTo(xOffset + 45, yOffset - 70);
+                        ctx.moveTo(xOffset + 50, yOffset - 60);
+                        ctx.lineTo(xOffset + 60, yOffset - 55);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            drawEye(-45, -30, 0);
+            drawEye(45, -30, 1);
+
+            // Mouth
+            if (state === 'sleeping') {
+                ctx.fillStyle = '#2c3e50';
+                ctx.beginPath(); ctx.arc(0, 50, 10, 0, Math.PI*2); ctx.fill();
+                
+                let bubbleScale = Math.sin(frameCount * 0.03) * 0.5 + 0.5;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.strokeStyle = '#82ccdd';
+                ctx.lineWidth = 3;
+                ctx.beginPath(); 
+                ctx.arc(30, 30, 8 + bubbleScale * 25, 0, Math.PI * 2); 
+                ctx.fill(); ctx.stroke();
+                
+                ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                ctx.beginPath();
+                ctx.arc(30 - (8+bubbleScale*25)*0.3, 30 - (8+bubbleScale*25)*0.3, 3 + bubbleScale*5, 0, Math.PI*2);
+                ctx.fill();
+
+            } else if (state === 'dizzy') {
+                ctx.fillStyle = '#2d3436';
+                ctx.beginPath(); 
+                ctx.ellipse(0, 55, 12, 20, 0, 0, Math.PI * 2); 
+                ctx.fill();
+            } else if (state === 'tickled') {
+                ctx.fillStyle = '#2c3e50';
+                ctx.beginPath(); 
+                ctx.moveTo(-30, 40);
+                ctx.quadraticCurveTo(0, 80, 30, 40);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.fillStyle = '#ff7675';
+                ctx.beginPath();
+                ctx.ellipse(0, 55, 15, 8, 0, 0, Math.PI*2);
+                ctx.fill();
+                
+            } else if (state === 'angry' || state === 'alarming') {
+                ctx.fillStyle = '#111';
+                let mouthShakeX = (Math.random() - 0.5) * 5;
+                let mouthShakeY = (Math.random() - 0.5) * 5;
+                
+                let mw = state === 'angry' ? 40 : 35;
+                let mh = state === 'angry' ? 55 : 45;
+                
+                ctx.beginPath(); 
+                ctx.ellipse(0 + mouthShakeX, 55 + mouthShakeY, mw, mh, 0, 0, Math.PI * 2); 
+                ctx.fill();
+                
+                ctx.fillStyle = '#ff4757';
+                ctx.beginPath(); 
+                ctx.ellipse(0 + mouthShakeX, 85 + mouthShakeY, mw*0.6, mh*0.4, 0, 0, Math.PI * 2); 
+                ctx.fill();
+                
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(-mw*0.8 + mouthShakeX, 55 - mh*0.6 + mouthShakeY);
+                for(let i=0; i<=4; i++) {
+                    let px = -mw*0.8 + (mw*1.6 * (i/4)) + mouthShakeX;
+                    let py = 55 - mh*0.6 + mouthShakeY + (i%2===0 ? 0 : 25);
+                    ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(-mw*0.8 + mouthShakeX, 55 + mh*0.8 + mouthShakeY);
+                for(let i=0; i<=4; i++) {
+                    let px = -mw*0.8 + (mw*1.6 * (i/4)) + mouthShakeX;
+                    let py = 55 + mh*0.8 + mouthShakeY - (i%2===0 ? 0 : 25);
+                    ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+            } else {
+                ctx.strokeStyle = '#2c3e50';
+                ctx.lineWidth = 6;
+                ctx.lineCap = 'round';
+                ctx.beginPath(); 
+                ctx.arc(0, 40, 25, 0.2, Math.PI - 0.2); 
+                ctx.stroke();
+                
+                ctx.fillStyle = 'rgba(255, 118, 117, 0.5)';
+                ctx.beginPath(); ctx.ellipse(-45, 45, 15, 10, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.ellipse(45, 45, 15, 10, 0, 0, Math.PI*2); ctx.fill();
+            }
+
+            if (state === 'dizzy') {
+                for(let i=0; i<3; i++) {
+                    let starAngle = (frameCount * 0.1) + (i * Math.PI * 2 / 3);
+                    let starX = Math.cos(starAngle) * 120;
+                    let starY = -120 + Math.sin(starAngle * 3) * 20; 
+                    
+                    ctx.save();
+                    ctx.translate(starX, starY);
+                    ctx.rotate(frameCount * 0.1);
+                    ctx.fillStyle = '#f1c40f';
+                    ctx.beginPath();
+                    for(let j=0; j<5; j++) {
+                        ctx.lineTo(Math.cos((18+j*72)*Math.PI/180)*20, -Math.sin((18+j*72)*Math.PI/180)*20);
+                        ctx.lineTo(Math.cos((54+j*72)*Math.PI/180)*8, -Math.sin((54+j*72)*Math.PI/180)*8);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+
+            // Glass Reflection
+            drawGlassReflection(ctx, 145);
+
+            ctx.restore();
+
+            // Draw Foreground Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                if (p.type !== 'burst' && p.type !== 'zzz' && p.type !== 'hah') {
+                    p.update();
+                    p.draw(ctx);
+                    if (p.life <= 0) particles.splice(i, 1);
+                }
+            }
+
+            frameCount++;
+            requestAnimationFrame(drawClock);
+        }
+
+        drawClock();
+    </script>
+</body>
+</html>
