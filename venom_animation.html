@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Alien Symbiote Face</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: sans-serif;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            filter: drop-shadow(0 0 50px rgba(0, 0, 0, 1));
+        }
+
+        #ui-hint {
+            position: absolute;
+            bottom: 25px;
+            color: rgba(255, 255, 255, 0.45);
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            pointer-events: none;
+            user-select: none;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-hint">Move mouse to target • Click & Hold to Enrage</div>
+    <canvas id="venomCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('venomCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let cx, cy;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            cx = canvas.width / 2;
+            cy = canvas.height / 2;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let mouse = { x: cx, y: cy };
+        let currentPos = { x: 0, y: 0 };
+        let time = 0;
+        let mouthOpen = 0; 
+        
+        let isRoaring = false;
+        let roarAmount = 0;
+
+        let lastTipPos = { x: 0, y: 0 };
+
+        window.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+
+        window.addEventListener('mousedown', () => isRoaring = true);
+        window.addEventListener('mouseup', () => isRoaring = false);
+        window.addEventListener('mouseleave', () => isRoaring = false);
+
+        let embers = [];
+        for (let i = 0; i < 45; i++) {
+            embers.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                radius: Math.random() * 2.5 + 0.5,
+                speedY: - (Math.random() * 1.8 + 0.6),
+                speedX: (Math.random() - 0.5) * 1.2,
+                alpha: Math.random() * 0.8 + 0.2
+            });
+        }
+
+        let drops = [];
+        for (let i = 0; i < 18; i++) {
+            drops.push({
+                x: (Math.random() - 0.5) * 260,
+                y: 180 + Math.random() * 80,
+                speed: 2 + Math.random() * 4,
+                length: 12 + Math.random() * 18,
+                radius: 2 + Math.random() * 2
+            });
+        }
+
+        let tongueParticles = [];
+
+        const upperTeeth = [
+            [-20, 100, -5, 101, -12, 185], [5, 101, 20, 100, 12, 185],
+            [-45, 96, -25, 99, -38, 175], [25, 99, 45, 96, 38, 175],
+            [-75, 90, -50, 95, -65, 160], [50, 95, 75, 90, 65, 160],
+            [-105, 83, -80, 88, -95, 145], [80, 88, 105, 83, 95, 145],
+            [-135, 75, -110, 81, -125, 130], [110, 81, 135, 75, 125, 130],
+            [-165, 68, -140, 73, -155, 115], [140, 73, 165, 68, 155, 115]
+        ];
+
+        const lowerTeethBase = [
+            [-15, 350, 0, 352, -8, 250], [0, 352, 15, 350, 8, 250],
+            [-40, 342, -20, 348, -32, 260], [20, 348, 40, 342, 32, 260],
+            [-70, 325, -45, 338, -62, 245], [45, 338, 70, 325, 62, 245],
+            [-105, 300, -75, 320, -95, 220], [75, 320, 105, 300, 95, 220],
+            [-140, 260, -110, 290, -130, 195], [110, 290, 140, 260, 130, 195],
+            [-170, 210, -145, 250, -160, 160], [145, 250, 170, 210, 160, 160]
+        ];
+
+        let threads = [];
+        for(let i = 0; i < 16; i++) {
+            threads.push({
+                uIdx: Math.floor(Math.random() * upperTeeth.length),
+                lIdx: Math.floor(Math.random() * lowerTeethBase.length),
+                breakDist: 150 + Math.random() * 160
+            });
+        }
+
+        function drawBackground() {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            embers.forEach(p => {
+                p.y += p.speedY;
+                p.x += p.speedX;
+                if (p.y < 0) p.y = canvas.height;
+                if (p.x < 0 || p.x > canvas.width) p.x = Math.random() * canvas.width;
+
+                ctx.globalAlpha = p.alpha;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#667788'; 
+                ctx.shadowColor = ctx.fillStyle;
+                ctx.shadowBlur = 8;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+            ctx.globalAlpha = 1.0;
+        }
+
+        function drawLeftEye(x, y, roar) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            ctx.scale(1, 1 - (roar * 0.28));
+
+            const eyePath = new Path2D();
+            eyePath.moveTo(-10, -210);
+            eyePath.bezierCurveTo(-120, -150, -170, -40, -165, 30);
+            eyePath.lineTo(-148, 36);
+            eyePath.bezierCurveTo(-160, 80, -145, 125, -152, 160);
+            eyePath.lineTo(-136, 166);
+            eyePath.bezierCurveTo(-110, 200, -70, 215, -30, 215);
+            eyePath.lineTo(-42, 202);
+            eyePath.bezierCurveTo(-15, 210, 10, 208, 40, 200);
+            eyePath.lineTo(20, 172);
+            eyePath.lineTo(-20, 100);
+            eyePath.lineTo(0, 132);
+            eyePath.bezierCurveTo(-35, 50, -70, -70, -10, -210);
+            eyePath.closePath();
+
+            let r = 255;
+            let g = Math.floor(255 - roar * 200);
+            let b = Math.floor(255 - roar * 200);
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.9)`;
+            ctx.shadowBlur = 25 + roar * 35;
+            ctx.fill(eyePath);
+
+            const grad = ctx.createRadialGradient(-70, -20, 10, -70, -20, 180);
+            grad.addColorStop(0, `rgba(255, ${255 - roar * 60}, ${255 - roar * 60}, 1)`);
+            grad.addColorStop(0.7, `rgba(230, ${230 - roar * 90}, ${230 - roar * 90}, 0.9)`);
+            grad.addColorStop(1, `rgba(180, ${180 - roar * 110}, ${180 - roar * 110}, 0.7)`);
+            ctx.fillStyle = grad;
+            ctx.fill(eyePath);
+            ctx.shadowBlur = 0;
+
+            ctx.clip(eyePath);
+            
+            ctx.strokeStyle = `rgba(${180 + roar * 75}, 0, 0, ${0.15 + roar * 0.3})`;
+            ctx.lineWidth = 1;
+            for(let i = 0; i < 25; i++) {
+                ctx.beginPath();
+                let sx = -80 + (Math.random() - 0.5) * 60;
+                let sy = -20 + (Math.random() - 0.5) * 60;
+                ctx.moveTo(sx, sy);
+                for(let j = 0; j < 4; j++) {
+                    sx += (Math.random() - 0.5) * 50 + (sx < -80 ? -30 : 30);
+                    sy += (Math.random() - 0.5) * 70;
+                    ctx.lineTo(sx, sy);
+                }
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = `rgba(${180 + roar * 50}, 150, 150, 0.4)`;
+            ctx.lineWidth = 1.5 + roar * 2;
+            ctx.beginPath();
+            ctx.moveTo(-30, -180);
+            ctx.bezierCurveTo(-100, -80, -120, 20, -100, 120);
+            ctx.moveTo(-40, -80);
+            ctx.bezierCurveTo(-70, 0, -60, 80, -10, 150);
+            ctx.stroke();
+
+            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+            ctx.lineWidth = 3;
+            ctx.stroke(eyePath);
+
+            ctx.restore();
+        }
+
+        function drawRightEye(x, y, roar) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(-1, 1);
+            drawLeftEye(0, 0, roar);
+            ctx.restore();
+        }
+
+        function drawMouthCavity(roar) {
+            ctx.save();
+
+            const jawYOffset = mouthOpen * 60 + roar * 120;
+
+            const throatGrad = ctx.createRadialGradient(0, 180 + jawYOffset / 2, 20, 0, 180 + jawYOffset / 2, 280);
+            throatGrad.addColorStop(0, '#9e0b1b');
+            throatGrad.addColorStop(0.5, '#4a0108');
+            throatGrad.addColorStop(1, '#1a0002');
+
+            ctx.beginPath();
+            ctx.moveTo(-180, 80);
+            ctx.bezierCurveTo(-100, 110, 100, 110, 180, 80);
+            ctx.bezierCurveTo(220, 180, 180, 320 + jawYOffset, 0, 360 + jawYOffset);
+            ctx.bezierCurveTo(-180, 320 + jawYOffset, -220, 180, -180, 80);
+            ctx.closePath();
+            ctx.fillStyle = throatGrad;
+            ctx.fill();
+
+            ctx.strokeStyle = '#b81d30';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+
+            let speed = 1.2 + roar * 1.5;
+            let tongueLength = 260 + mouthOpen * 50 + roar * 90;
+
+            const numSegments = 8;
+            let tailPoints = [];
+            tailPoints.push({ x: 0, y: 230 });
+
+            for (let i = 1; i <= numSegments; i++) {
+                let seg = i / numSegments;
+                let lag = seg * 1.1;
+
+                let waveX = Math.sin((time - lag) * 2.2 * speed) * (140 * seg) + Math.cos((time - lag * 1.5) * 3.5 * speed) * (45 * seg);
+                let waveY = 230 + (tongueLength * seg) + Math.sin((time - lag * 0.8) * 3.0 * speed) * (40 * seg) + Math.cos((time - lag) * 1.8 * speed) * (20 * seg);
+
+                tailPoints.push({ x: waveX, y: waveY });
+            }
+
+            let baseWidth = 50 + roar * 10;
+            
+            let leftPoints = [];
+            let rightPoints = [];
+
+            for (let i = 0; i < tailPoints.length; i++) {
+                let segRatio = i / (tailPoints.length - 1);
+                let w = baseWidth * Math.pow(1 - segRatio * 0.65, 0.85);
+
+                let next = tailPoints[Math.min(i + 1, tailPoints.length - 1)];
+                let prev = tailPoints[Math.max(i - 1, 0)];
+                let angle = Math.atan2(next.y - prev.y, next.x - prev.x);
+                let perp = angle + Math.PI / 2;
+
+                leftPoints.push({
+                    x: tailPoints[i].x + Math.cos(perp) * w,
+                    y: tailPoints[i].y + Math.sin(perp) * w
+                });
+
+                rightPoints.push({
+                    x: tailPoints[i].x - Math.cos(perp) * w,
+                    y: tailPoints[i].y - Math.sin(perp) * w
+                });
+            }
+
+            let tipX = tailPoints[tailPoints.length - 1].x;
+            let tipY = tailPoints[tailPoints.length - 1].y;
+
+            ctx.beginPath();
+            ctx.moveTo(leftPoints[0].x, leftPoints[0].y);
+
+            for (let i = 1; i < leftPoints.length; i++) {
+                let xc = (leftPoints[i].x + leftPoints[i - 1].x) / 2;
+                let yc = (leftPoints[i].y + leftPoints[i - 1].y) / 2;
+                ctx.quadraticCurveTo(leftPoints[i - 1].x, leftPoints[i - 1].y, xc, yc);
+            }
+
+            let lastL = leftPoints[leftPoints.length - 1];
+            let lastR = rightPoints[rightPoints.length - 1];
+            ctx.bezierCurveTo(lastL.x, lastL.y + 25, lastR.x, lastR.y + 25, lastR.x, lastR.y);
+
+            for (let i = rightPoints.length - 2; i >= 0; i--) {
+                let xc = (rightPoints[i].x + rightPoints[i + 1].x) / 2;
+                let yc = (rightPoints[i].y + rightPoints[i + 1].y) / 2;
+                ctx.quadraticCurveTo(rightPoints[i + 1].x, rightPoints[i + 1].y, xc, yc);
+            }
+
+            ctx.closePath();
+
+            const tongueGrad = ctx.createLinearGradient(0, 230, tipX, tipY);
+            tongueGrad.addColorStop(0, '#2d0005');
+            tongueGrad.addColorStop(0.2, '#7a0919');
+            tongueGrad.addColorStop(0.6, '#b8122c');
+            tongueGrad.addColorStop(0.85, '#d62440');
+            tongueGrad.addColorStop(1, '#52030d');
+
+            ctx.fillStyle = tongueGrad;
+            ctx.shadowColor = `rgba(255, 0, 30, ${0.35 + roar * 0.4})`;
+            ctx.shadowBlur = 20 + roar * 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            ctx.beginPath();
+            ctx.moveTo(tailPoints[0].x, tailPoints[0].y);
+            for (let i = 1; i < tailPoints.length; i++) {
+                let xc = (tailPoints[i].x + tailPoints[i - 1].x) / 2;
+                let yc = (tailPoints[i].y + tailPoints[i - 1].y) / 2;
+                ctx.quadraticCurveTo(tailPoints[i - 1].x, tailPoints[i - 1].y, xc, yc);
+            }
+            ctx.strokeStyle = '#1a0003';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+
+            ctx.beginPath();
+            for (let i = 0; i < leftPoints.length - 1; i++) {
+                let offsetL = {
+                    x: tailPoints[i].x + (leftPoints[i].x - tailPoints[i].x) * 0.4,
+                    y: tailPoints[i].y + (leftPoints[i].y - tailPoints[i].y) * 0.4
+                };
+                if (i === 0) ctx.moveTo(offsetL.x, offsetL.y);
+                else ctx.lineTo(offsetL.x, offsetL.y);
+            }
+            ctx.strokeStyle = 'rgba(255, 180, 195, 0.4)';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            ctx.strokeStyle = `rgba(255, 60, 90, ${0.25 + roar * 0.35})`;
+            ctx.lineWidth = 1.5;
+            for (let i = 1; i < tailPoints.length - 1; i++) {
+                let prev = tailPoints[i - 1];
+                let curr = tailPoints[i];
+                let angle = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+                let perp = angle + Math.PI / 2;
+
+                ctx.beginPath();
+                ctx.moveTo(curr.x + Math.cos(perp) * 12, curr.y + Math.sin(perp) * 12);
+                ctx.lineTo(curr.x - Math.cos(perp) * 12, curr.y - Math.sin(perp) * 12);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            let tipVx = tipX - lastTipPos.x;
+            let tipVy = tipY - lastTipPos.y;
+            lastTipPos = { x: tipX, y: tipY };
+
+            if (Math.abs(tipVx) + Math.abs(tipVy) > 2.5 || roar > 0.2) {
+                if (Math.random() < 0.7) {
+                    tongueParticles.push({
+                        x: tipX + (Math.random() - 0.5) * 15,
+                        y: tipY + (Math.random() - 0.5) * 15,
+                        vx: tipVx * 0.2 + (Math.random() - 0.5) * 3,
+                        vy: tipVy * 0.2 + Math.random() * 3 + 1.5,
+                        size: Math.random() * 3 + 1,
+                        alpha: 0.85
+                    });
+                }
+            }
+
+            for (let i = tongueParticles.length - 1; i >= 0; i--) {
+                let p = tongueParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2;
+                p.alpha -= 0.025;
+
+                if (p.alpha <= 0) {
+                    tongueParticles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${p.alpha})`;
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        function drawNeedleTooth(ctx, x1, y1, x2, y2, tipX, tipY, isUpper) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            let curveStrength = isUpper ? 15 : -15;
+            let cpX = (x1 + tipX)/2 + (tipX > 0 ? -curveStrength : curveStrength);
+            ctx.quadraticCurveTo(cpX, (y1 + tipY)/2, tipX, tipY);
+            ctx.quadraticCurveTo((x2 + tipX)/2 - (tipX > 0 ? -curveStrength : curveStrength)*0.3, (y2 + tipY)/2, x2, y2);
+            ctx.quadraticCurveTo((x1 + x2)/2, (y1 + y2)/2 + (isUpper ? -15 : 15), x1, y1);
+            ctx.closePath();
+
+            const toothGrad = ctx.createLinearGradient(x1, y1, tipX, tipY);
+            toothGrad.addColorStop(0, '#ffffff'); 
+            toothGrad.addColorStop(0.5, '#e0d8c1'); 
+            toothGrad.addColorStop(1, '#57513e'); 
+            ctx.fillStyle = toothGrad;
+            ctx.fill();
+
+            const rootGrad = ctx.createLinearGradient((x1+x2)/2, (y1+y2)/2, tipX, tipY);
+            rootGrad.addColorStop(0, 'rgba(100, 0, 5, 0.95)');
+            rootGrad.addColorStop(0.3, 'rgba(100, 0, 5, 0)');
+            ctx.fillStyle = rootGrad;
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function drawTeeth(roar) {
+            const jawY = mouthOpen * 60 + roar * 120;
+
+            upperTeeth.forEach(t => drawNeedleTooth(ctx, t[0], t[1], t[2], t[3], t[4], t[5], true));
+            
+            ctx.save();
+            ctx.translate(0, jawY);
+            lowerTeethBase.forEach(t => drawNeedleTooth(ctx, t[0], t[1], t[2], t[3], t[4], t[5], false));
+            ctx.restore();
+        }
+
+        function drawSlimeAndDrops(roar) {
+            const jawY = mouthOpen * 60 + roar * 120;
+
+            ctx.lineCap = 'round';
+
+            threads.forEach(t => {
+                let u = upperTeeth[t.uIdx];
+                let l = lowerTeethBase[t.lIdx];
+                let ux = u[4], uy = u[5];
+                let lx = l[4], ly = l[5] + jawY;
+                
+                let dist = Math.hypot(ux - lx, uy - ly);
+                
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+                ctx.lineWidth = 1.8;
+
+                if (dist < t.breakDist) {
+                    ctx.beginPath();
+                    ctx.moveTo(ux, uy);
+                    ctx.quadraticCurveTo((ux+lx)/2 + Math.sin(time * 2) * 8, (uy+ly)/2 + 15, lx, ly);
+                    ctx.stroke();
+                } else {
+                    ctx.beginPath();
+                    ctx.moveTo(ux, uy);
+                    ctx.lineTo(ux, uy + 12 + Math.random() * 5);
+                    ctx.moveTo(lx, ly);
+                    ctx.lineTo(lx, ly - 12 - Math.random() * 5);
+                    ctx.stroke();
+                }
+            });
+
+            drops.forEach(d => {
+                d.y += d.speed * (1 + roar * 2);
+                if (d.y > 420 + jawY) {
+                    d.y = 150 + Math.random() * 50;
+                    d.x = (Math.random() - 0.5) * 260;
+                }
+
+                ctx.beginPath();
+                ctx.arc(d.x, d.y, d.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(d.x, d.y);
+                ctx.lineTo(d.x, d.y - d.length * (1 + roar * 0.5));
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+        }
+
+        function animate() {
+            time += 0.03;
+
+            roarAmount += ((isRoaring ? 1 : 0) - roarAmount) * 0.12;
+
+            document.getElementById('ui-hint').style.opacity = roarAmount > 0.1 ? '0' : '1';
+
+            const targetMouthOpen = Math.max(0, Math.min(1, (mouse.y - cy + 100) / 300));
+            mouthOpen += (targetMouthOpen - mouthOpen) * 0.1;
+
+            const targetX = (mouse.x - cx) * 0.05;
+            const targetY = (mouse.y - cy) * 0.05;
+
+            currentPos.x += (targetX - currentPos.x) * 0.08;
+            currentPos.y += (targetY - currentPos.y) * 0.08;
+
+            const posX = cx + currentPos.x;
+            const posY = cy + currentPos.y;
+
+            drawBackground();
+
+            const shakeX = roarAmount * (Math.random() - 0.5) * 22;
+            const shakeY = roarAmount * (Math.random() - 0.5) * 22;
+
+            ctx.save();
+            ctx.translate(posX + shakeX, posY + shakeY);
+            ctx.scale(0.5, 0.5);
+
+            drawMouthCavity(roarAmount);
+            drawTeeth(roarAmount);
+            drawSlimeAndDrops(roarAmount);
+            
+            drawLeftEye(-85, -140, roarAmount);
+            drawRightEye(85, -140, roarAmount);
+
+            ctx.restore();
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
