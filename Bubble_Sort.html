@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bubble Sort — Step Debugger</title>
+<style>
+  :root{
+    --bg: #10161c;
+    --panel: #161d25;
+    --panel-2: #1c2530;
+    --line: #26313d;
+    --text: #d7e0e8;
+    --dim: #6b7c8c;
+    --accent: #ffb347;
+    --accent-2: #5fd0ff;
+    --ok: #58d68d;
+    --bad: #ff6b6b;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, Menlo, monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family: var(--mono);
+    -webkit-font-smoothing:antialiased;
+  }
+  body{ padding: 22px; min-height:100vh; }
+
+  .wrap{ max-width: 1180px; margin:0 auto; }
+
+  header{ display:flex; align-items:baseline; gap:14px; margin-bottom:18px; flex-wrap:wrap; }
+  header h1{
+    font-size: 15px; letter-spacing: 3px; text-transform:uppercase;
+    color: var(--dim); font-weight:600; margin:0;
+  }
+  header .lang{
+    color: var(--accent); font-size:15px; letter-spacing:3px; text-transform:uppercase;
+  }
+  .rule{ height:1px; background:var(--line); margin: 14px 0 20px; }
+
+  .controls{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding: 12px 14px; margin-bottom: 18px;
+  }
+  .controls label{ font-size:11px; color:var(--dim); letter-spacing:1px; text-transform:uppercase; }
+  input[type=text]{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:6px;
+    width: 260px;
+  }
+  input[type=text]:focus{ outline:none; border-color:var(--accent-2); }
+  button{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:12px; letter-spacing:0.5px;
+    padding:8px 14px; border-radius:6px; cursor:pointer; transition: all .12s ease;
+  }
+  button:hover{ border-color:var(--accent-2); color:var(--accent-2); }
+  button:active{ transform: translateY(1px); }
+  button:disabled{ opacity:.35; cursor:not-allowed; }
+  button.primary{ border-color:var(--accent); color:var(--accent); }
+  button.primary:hover{ background: rgba(255,179,71,0.08); }
+
+  .speed{ display:flex; align-items:center; gap:8px; margin-left:auto; }
+  input[type=range]{ width:120px; accent-color: var(--accent-2); }
+
+  .stage{
+    display:grid; grid-template-columns: 1.15fr 0.85fr; gap:18px;
+    align-items:stretch;
+  }
+  @media (max-width: 900px){ .stage{ grid-template-columns: 1fr; } }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding: 16px; position:relative;
+  }
+  .panel .title{
+    font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--dim);
+    margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center;
+  }
+
+  /* visualization */
+  #canvasArea{ height: 340px; display:flex; align-items:flex-end; gap:8px; padding: 10px 6px 30px; position:relative; }
+  .bar{
+    position:relative; flex:1; min-width: 8px;
+    background: linear-gradient(180deg, #2a3a4a, #223140);
+    border: 1px solid var(--line); border-radius: 4px 4px 2px 2px;
+    display:flex; align-items:flex-start; justify-content:center;
+    transition: transform .28s ease, background .2s ease, border-color .2s ease;
+  }
+  .bar .val{
+    margin-top: -22px; font-size: 12px; color: var(--dim); transition: color .2s ease;
+  }
+  .bar.compare{ background: linear-gradient(180deg, #3a2d1c, #2c2418); border-color: var(--accent); }
+  .bar.compare .val{ color: var(--accent); }
+  .bar.swap{ background: linear-gradient(180deg, #2c1f24, #241a1e); border-color: var(--bad); }
+  .bar.swap .val{ color: var(--bad); }
+  .bar.sorted{ background: linear-gradient(180deg, #1c3324, #172a1e); border-color: var(--ok); }
+  .bar.sorted .val{ color: var(--ok); }
+  .bar.bump{ transform: translateY(-14px); }
+
+  .indexrow{ position:absolute; bottom:4px; left:6px; right:6px; height:20px; }
+  .idxmark{
+    position:absolute; bottom:0; transform: translateX(-50%);
+    font-size:10px; padding:1px 5px; border-radius:4px; letter-spacing:0.5px;
+    white-space:nowrap;
+  }
+  .idxmark.i{ background: rgba(95,208,255,0.15); color:var(--accent-2); border:1px solid rgba(95,208,255,0.4);}
+  .idxmark.j{ background: rgba(255,179,71,0.15); color:var(--accent); border:1px solid rgba(255,179,71,0.4);}
+
+  /* code panel */
+  pre#code{
+    margin:0; font-size:12.5px; line-height: 1.65; overflow-x:auto;
+    color: var(--dim);
+  }
+  #code .ln{ display:block; padding: 1px 8px; border-radius:4px; white-space:pre; }
+  #code .ln.active{ background: rgba(255,179,71,0.12); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+  #code .kw{ color:#c586c0; }
+  #code .tp{ color:#4fb3d9; }
+  #code .fn{ color:#dcdcaa; }
+  #code .num{ color:#b5cea8; }
+  #code .op{ color:#d7e0e8; }
+
+  .watch{
+    margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line);
+    display:grid; grid-template-columns: repeat(3,1fr); gap:10px;
+  }
+  .watch .w{
+    background: var(--panel-2); border:1px solid var(--line); border-radius:6px;
+    padding: 8px 10px;
+  }
+  .watch .w .k{ font-size:10px; color:var(--dim); letter-spacing:1px; text-transform:uppercase; }
+  .watch .w .v{ font-size:16px; color:var(--accent-2); margin-top:2px; }
+
+  .status{
+    margin-top:14px; font-size:12.5px; color:var(--text); min-height: 20px;
+    padding: 10px 12px; background:var(--panel-2); border-radius:6px; border:1px solid var(--line);
+  }
+  .status .tag{ color:var(--accent); }
+  .status .tag.swap{ color:var(--bad); }
+  .status .tag.ok{ color:var(--ok); }
+
+  footer{ margin-top:16px; color:var(--dim); font-size:11px; letter-spacing:0.5px; }
+  .legend{ display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); }
+  .dot{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+  .dot.c{ background:var(--accent); } .dot.s{ background:var(--bad); } .dot.d{ background:var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Step Debugger</h1>
+    <span class="lang">Bubble Sort · C</span>
+  </header>
+  <div class="rule"></div>
+
+  <div class="controls">
+    <label>Array</label>
+    <input type="text" id="arrInput" value="5, 2, 9, 1, 6, 3" placeholder="e.g. 5, 2, 9, 1, 6, 3">
+    <button class="primary" id="loadBtn">Load</button>
+    <button id="randomBtn">Random</button>
+    <span style="width:1px;height:22px;background:var(--line);"></span>
+    <button id="stepBackBtn">◀ Step</button>
+    <button id="playBtn" class="primary">▶ Play</button>
+    <button id="stepBtn">Step ▶</button>
+    <button id="resetBtn">Reset</button>
+    <div class="speed">
+      <label>Speed</label>
+      <input type="range" id="speed" min="80" max="1400" value="600">
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="panel">
+      <div class="title"><span>Array State</span><span id="passLabel">pass 0</span></div>
+      <div id="canvasArea"></div>
+      <div class="legend">
+        <span><i class="dot c"></i> comparing</span>
+        <span><i class="dot s"></i> swapping</span>
+        <span><i class="dot d"></i> settled in place</span>
+      </div>
+      <div class="watch">
+        <div class="w"><div class="k">i</div><div class="v" id="wi">–</div></div>
+        <div class="w"><div class="k">j</div><div class="v" id="wj">–</div></div>
+        <div class="w"><div class="k">swapped</div><div class="v" id="wswap">–</div></div>
+      </div>
+      <div class="status" id="status">Load an array to begin.</div>
+    </div>
+
+    <div class="panel">
+      <div class="title"><span>bubble_sort.c</span><span id="lineLabel">&nbsp;</span></div>
+      <pre id="code"></pre>
+    </div>
+  </div>
+
+  <footer>Each highlighted line in the C source matches the exact step being animated on the left — comparisons, swaps, and the shrinking unsorted boundary.</footer>
+</div>
+
+<script>
+const CODE_LINES = [
+  { n:1,  html: `<span class="kw">void</span> <span class="fn">bubbleSort</span>(<span class="tp">int</span> arr[], <span class="tp">int</span> n) {` },
+  { n:2,  html: `    <span class="tp">int</span> i, j, temp;` },
+  { n:3,  html: `    <span class="kw">for</span> (i = <span class="num">0</span>; i &lt; n - <span class="num">1</span>; i++) {` },
+  { n:4,  html: `        <span class="kw">for</span> (j = <span class="num">0</span>; j &lt; n - i - <span class="num">1</span>; j++) {` },
+  { n:5,  html: `            <span class="kw">if</span> (arr[j] &gt; arr[j + <span class="num">1</span>]) {` },
+  { n:6,  html: `                temp = arr[j];` },
+  { n:7,  html: `                arr[j] = arr[j + <span class="num">1</span>];` },
+  { n:8,  html: `                arr[j + <span class="num">1</span>] = temp;` },
+  { n:9,  html: `            }` },
+  { n:10, html: `        }` },
+  { n:11, html: `        <span class="op">/*</span> arr[n-i-1] <span class="kw">is</span> now sorted <span class="op">*/</span>` },
+  { n:12, html: `    }` },
+  { n:13, html: `}` },
+];
+
+const codeEl = document.getElementById('code');
+codeEl.innerHTML = CODE_LINES.map(l => `<span class="ln" id="ln${l.n}">${String(l.n).padStart(2,' ')}  ${l.html}</span>`).join('\n');
+
+function highlightLine(n){
+  document.querySelectorAll('#code .ln').forEach(el => el.classList.remove('active'));
+  if(n){
+    const el = document.getElementById('ln'+n);
+    if(el){ el.classList.add('active'); el.scrollIntoView({block:'nearest'}); }
+  }
+  document.getElementById('lineLabel').textContent = n ? ('line ' + n) : '';
+}
+
+// ---------- Step generation (mirrors the C code exactly) ----------
+let baseArray = [];
+let steps = [];   // each step: {arr, i, j, line, type, note, sortedBoundary}
+let stepIndex = 0;
+let playing = false;
+let timer = null;
+
+function buildSteps(arr){
+  const a = arr.slice();
+  const n = a.length;
+  const s = [];
+
+  s.push({ arr: a.slice(), i:null, j:null, line:1, type:'info', note:'Array loaded. Starting bubbleSort(arr, n).', sortedFrom:n });
+
+  for(let i=0;i<n-1;i++){
+    s.push({ arr:a.slice(), i, j:null, line:3, type:'info', note:`Outer loop: i = ${i}. Unsorted range is [0, ${n-i-1}].`, sortedFrom:n-i });
+    let swappedThisPass = false;
+    for(let j=0;j<n-i-1;j++){
+      s.push({ arr:a.slice(), i, j, line:4, type:'info', note:`Inner loop: j = ${j}. Comparing arr[${j}] and arr[${j+1}].`, sortedFrom:n-i });
+      s.push({ arr:a.slice(), i, j, line:5, type:'compare', note:`if (arr[${j}] > arr[${j+1}])  →  ${a[j]} > ${a[j+1]} is ${a[j] > a[j+1]}`, sortedFrom:n-i });
+      if(a[j] > a[j+1]){
+        s.push({ arr:a.slice(), i, j, line:6, type:'swap-prep', note:`temp = arr[${j}]   (temp = ${a[j]})`, sortedFrom:n-i });
+        const tmp = a[j];
+        a[j] = a[j+1];
+        s.push({ arr:a.slice(), i, j, line:7, type:'swap-prep', note:`arr[${j}] = arr[${j+1}]   → arr[${j}] becomes ${a[j]}`, sortedFrom:n-i });
+        a[j+1] = tmp;
+        s.push({ arr:a.slice(), i, j, line:8, type:'swap', note:`arr[${j+1}] = temp   → swapped! arr = [${a.join(', ')}]`, sortedFrom:n-i });
+        swappedThisPass = true;
+      } else {
+        s.push({ arr:a.slice(), i, j, line:9, type:'no-swap', note:`${a[j]} ≤ ${a[j+1]}, no swap needed.`, sortedFrom:n-i });
+      }
+    }
+    s.push({ arr:a.slice(), i, j:null, line:11, type:'settled', note:`Pass ${i+1} complete. arr[${n-i-1}] = ${a[n-i-1]} is now in its final sorted position.`, sortedFrom:n-i-1 });
+  }
+  s.push({ arr:a.slice(), i:null, j:null, line:13, type:'done', note:`Done! Array fully sorted: [${a.join(', ')}]`, sortedFrom:0 });
+  return s;
+}
+
+// ---------- Rendering ----------
+const canvasArea = document.getElementById('canvasArea');
+
+function renderArray(step){
+  const arr = step.arr;
+  const max = Math.max(...arr, 1);
+  canvasArea.innerHTML = '';
+  const bars = document.createElement('div');
+  bars.style.cssText = 'display:flex;gap:8px;width:100%;height:100%;align-items:flex-end;position:relative;';
+
+  arr.forEach((v, idx) => {
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const heightPct = 18 + (v / max) * 78;
+    bar.style.height = heightPct + '%';
+
+    const isSorted = idx >= step.sortedFrom;
+    const isCompareA = step.j !== null && (idx === step.j || idx === step.j+1) && (step.type==='compare');
+    const isSwap = step.j !== null && (idx === step.j || idx === step.j+1) && (step.type==='swap' || step.type==='swap-prep');
+
+    if(isSwap) bar.classList.add('swap');
+    else if(isCompareA) bar.classList.add('compare');
+    else if(isSorted) bar.classList.add('sorted');
+
+    if(isSwap || isCompareA) bar.classList.add('bump');
+
+    const val = document.createElement('div');
+    val.className = 'val';
+    val.textContent = v;
+    bar.appendChild(val);
+    bars.appendChild(bar);
+  });
+
+  const idxrow = document.createElement('div');
+  idxrow.className = 'indexrow';
+  const n = arr.length;
+  const cellW = 100 / n;
+  if(step.i !== null){
+    const m = document.createElement('div');
+    m.className = 'idxmark i';
+    m.style.left = (cellW * step.i + cellW/2) + '%';
+    m.textContent = 'i';
+    idxrow.appendChild(m);
+  }
+  if(step.j !== null){
+    const m = document.createElement('div');
+    m.className = 'idxmark j';
+    m.style.left = (cellW * step.j + cellW/2) + '%';
+    m.textContent = 'j';
+    idxrow.appendChild(m);
+    const m2 = document.createElement('div');
+    m2.className = 'idxmark j';
+    m2.style.left = (cellW * (step.j+1) + cellW/2) + '%';
+    m2.textContent = 'j+1';
+    idxrow.appendChild(m2);
+  }
+
+  canvasArea.style.position = 'relative';
+  canvasArea.appendChild(bars);
+  canvasArea.appendChild(idxrow);
+}
+
+function renderStep(){
+  if(steps.length === 0) return;
+  const step = steps[stepIndex];
+  renderArray(step);
+  highlightLine(step.line);
+
+  document.getElementById('wi').textContent = step.i === null ? '–' : step.i;
+  document.getElementById('wj').textContent = step.j === null ? '–' : step.j;
+  document.getElementById('wswap').textContent =
+    step.type === 'swap' ? 'yes' : (step.type === 'no-swap' ? 'no' : '–');
+
+  document.getElementById('passLabel').textContent =
+    step.i === null ? (step.type==='done' ? 'complete' : 'pass 0') : `pass ${step.i + 1}`;
+
+  const statusEl = document.getElementById('status');
+  let tagClass = 'tag';
+  if(step.type === 'swap') tagClass = 'tag swap';
+  if(step.type === 'done' || step.type === 'settled') tagClass = 'tag ok';
+  statusEl.innerHTML = `<span class="${tagClass}">[step ${stepIndex+1}/${steps.length}]</span> ${step.note}`;
+
+  document.getElementById('stepBtn').disabled = stepIndex >= steps.length - 1;
+  document.getElementById('stepBackBtn').disabled = stepIndex <= 0;
+  document.getElementById('playBtn').disabled = stepIndex >= steps.length - 1;
+}
+
+// ---------- Controls ----------
+function loadArray(arr){
+  if(arr.length < 2 || arr.length > 20){
+    document.getElementById('status').textContent = 'Please enter between 2 and 20 numbers.';
+    return;
+  }
+  baseArray = arr;
+  steps = buildSteps(arr);
+  stepIndex = 0;
+  stopPlaying();
+  renderStep();
+}
+
+function parseInput(){
+  const raw = document.getElementById('arrInput').value;
+  const nums = raw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+  return nums;
+}
+
+function stopPlaying(){
+  playing = false;
+  clearTimeout(timer);
+  document.getElementById('playBtn').textContent = '▶ Play';
+}
+
+function tick(){
+  if(!playing) return;
+  if(stepIndex >= steps.length - 1){ stopPlaying(); return; }
+  stepIndex++;
+  renderStep();
+  const speed = 1500 - document.getElementById('speed').value * 1;
+  timer = setTimeout(tick, Number(document.getElementById('speed').value));
+}
+
+document.getElementById('loadBtn').onclick = () => loadArray(parseInput());
+document.getElementById('randomBtn').onclick = () => {
+  const n = 6 + Math.floor(Math.random()*4);
+  const arr = Array.from({length:n}, () => 1 + Math.floor(Math.random()*95));
+  document.getElementById('arrInput').value = arr.join(', ');
+  loadArray(arr);
+};
+document.getElementById('stepBtn').onclick = () => {
+  stopPlaying();
+  if(stepIndex < steps.length - 1){ stepIndex++; renderStep(); }
+};
+document.getElementById('stepBackBtn').onclick = () => {
+  stopPlaying();
+  if(stepIndex > 0){ stepIndex--; renderStep(); }
+};
+document.getElementById('resetBtn').onclick = () => {
+  stopPlaying();
+  stepIndex = 0;
+  renderStep();
+};
+document.getElementById('playBtn').onclick = () => {
+  if(playing){ stopPlaying(); return; }
+  if(stepIndex >= steps.length - 1) stepIndex = 0;
+  playing = true;
+  document.getElementById('playBtn').textContent = '⏸ Pause';
+  tick();
+};
+
+// initial load
+loadArray(parseInput());
+</script>
+</body>
+</html>
