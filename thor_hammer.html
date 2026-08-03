@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thor's Hammer (Mjolnir) - Interactive</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #2a2a35;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+            touch-action: none;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            padding-bottom: 50px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+        .instruction {
+            color: rgba(255, 255, 255, 0.7);
+            text-align: center;
+            font-size: 1.1rem;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-shadow: 0 0 15px rgba(100, 200, 255, 0.8);
+            animation: pulse 2.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { opacity: 0.4; }
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #thunder-flash {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ffffff;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 5;
+            transition: opacity 0.1s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="thunder-flash"></div>
+    <div id="ui-layer">
+        <div class="instruction">Hold 'T' for Thunder | Hold 'R' for Spin & Thunder</div>
+    </div>
+    <div id="canvas-container"></div>
+
+    <!-- Three.js Library and Post-Processing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <script>
+        let scene, camera, renderer, composer, bloomPass, controls;
+        let hammer, lightningGroup;
+        let isCharging = false;
+        let isChargingT = false;
+        let isChargingR = false;
+        let chargeLevel = 0;
+        let clock = new THREE.Clock();
+        let flashDiv = document.getElementById('thunder-flash');
+        
+        // Base rotation state
+        let baseRotation = new THREE.Euler(Math.PI / 12, 0, Math.PI / 8);
+        
+        let rainGeo, rainSystem;
+        const rainCount = 15000;
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x2a2a35, 0.012);
+
+            // 2. Camera Setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 4, 25);
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+
+            // 4. Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enabled = true; // Allow rotating the camera/background
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = false;
+            controls.maxPolarAngle = Math.PI / 2 + 0.1; 
+            controls.minDistance = 10;
+            controls.maxDistance = 40;
+            controls.target.set(0, 2, 0);
+
+            // 5. Lighting
+            const ambientLight = new THREE.AmbientLight(0x222233, 1.2);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xaaccff, 1.5);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+            
+            const fillLight = new THREE.DirectionalLight(0xffddaa, 0.8);
+            fillLight.position.set(-10, -5, -10);
+            scene.add(fillLight);
+
+            const blueLight = new THREE.PointLight(0x4488ff, 0, 40);
+            blueLight.position.set(0, 5, 0);
+            scene.add(blueLight);
+            scene.userData.blueLight = blueLight;
+
+            // 6. Build Scene Objects
+            createEnvironment();
+            createHammer();
+            createLightningSystem();
+            createRain();
+
+            // 7. Post-Processing (Bloom for Lightning)
+            const renderScene = new THREE.RenderPass(scene, camera);
+            bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.1;
+            bloomPass.strength = 0.2; // Base ambient glow
+            bloomPass.radius = 0.8;
+
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            // 8. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            
+            window.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                if (key === 'r') isChargingR = true;
+                if (key === 't') isChargingT = true;
+                isCharging = isChargingR || isChargingT;
+            });
+            window.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                if (key === 'r') isChargingR = false;
+                if (key === 't') isChargingT = false;
+                isCharging = isChargingR || isChargingT;
+            });
+
+            animate();
+        }
+
+        function createEnvironment() {
+            // Dark rocky ground
+            const groundGeo = new THREE.PlaneGeometry(200, 200, 64, 64);
+            
+            // Rough terrain displacement
+            const pos = groundGeo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                pos.setZ(i, Math.random() * 2.5 - 1.25);
+            }
+            groundGeo.computeVertexNormals();
+
+            const groundMat = new THREE.MeshStandardMaterial({ 
+                color: 0x33333d,
+                roughness: 0.9,
+                metalness: 0.1,
+                flatShading: true
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -7;
+            scene.add(ground);
+        }
+
+        function createRain() {
+            rainGeo = new THREE.BufferGeometry();
+            const rainPos = new Float32Array(rainCount * 3);
+            for(let i = 0; i < rainCount; i++) {
+                rainPos[i*3] = Math.random() * 100 - 50;
+                rainPos[i*3+1] = Math.random() * 100 - 50;
+                rainPos[i*3+2] = Math.random() * 100 - 50;
+            }
+            rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+            const rainMaterial = new THREE.PointsMaterial({
+                color: 0x88aacc,
+                size: 0.1,
+                transparent: true,
+                opacity: 0.4
+            });
+            rainSystem = new THREE.Points(rainGeo, rainMaterial);
+            scene.add(rainSystem);
+        }
+
+        function createHammer() {
+            hammer = new THREE.Group();
+            
+            // --- Materials ---
+            const metalMaterial = new THREE.MeshStandardMaterial({
+                color: 0xa0a0a0,
+                metalness: 0.9,
+                roughness: 0.3,
+            });
+            
+            const darkMetalMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                metalness: 0.8,
+                roughness: 0.6,
+            });
+
+            const leatherMaterial = new THREE.MeshStandardMaterial({
+                color: 0x2e1507, // Dark rich leather
+                metalness: 0.1,
+                roughness: 0.9,
+            });
+
+            const silverMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                metalness: 1.0,
+                roughness: 0.15,
+            });
+
+            // --- 1. Hammer Head ---
+            // Create a chamfered rectangle block
+            const length = 4.2;
+            const height = 2.6;
+            const width = 2.6;
+            const bevel = 0.4;
+
+            const sx = length / 2 - bevel;
+            const sy = height / 2 - bevel;
+
+            const shape = new THREE.Shape();
+            shape.moveTo(-sx, -sy);
+            shape.lineTo(sx, -sy);
+            shape.lineTo(sx, sy);
+            shape.lineTo(-sx, sy);
+            shape.lineTo(-sx, -sy);
+
+            const extrudeSettings = {
+                depth: width - bevel * 2,
+                bevelEnabled: true,
+                bevelSegments: 1, // Flat chamfer
+                steps: 1,
+                bevelSize: bevel,
+                bevelThickness: bevel
+            };
+
+            const headGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            headGeo.center();
+            const headMesh = new THREE.Mesh(headGeo, metalMaterial);
+            
+            // Side detailed panels (darker inset look)
+            const panelGeo = new THREE.PlaneGeometry(3.0, 1.4);
+            const panelFront = new THREE.Mesh(panelGeo, darkMetalMaterial);
+            panelFront.position.z = width/2 + 0.01;
+            
+            const panelBack = new THREE.Mesh(panelGeo, darkMetalMaterial);
+            panelBack.position.z = -(width/2 + 0.01);
+            panelBack.rotation.y = Math.PI;
+
+            headMesh.add(panelFront);
+            headMesh.add(panelBack);
+            
+            headMesh.position.y = 5;
+            hammer.add(headMesh);
+
+            // --- 2. Handle ---
+            const handleGeo = new THREE.CylinderGeometry(0.35, 0.35, 7, 32);
+            const handleMesh = new THREE.Mesh(handleGeo, leatherMaterial);
+            handleMesh.position.y = 1.5;
+            hammer.add(handleMesh);
+
+            // --- 3. Chevron Rings ---
+            for (let i = 0; i < 9; i++) {
+                const ringGeo = new THREE.TorusGeometry(0.36, 0.06, 16, 32);
+                const ringMesh = new THREE.Mesh(ringGeo, silverMaterial);
+                ringMesh.position.y = -1.3 + (i * 0.7);
+                ringMesh.rotation.x = Math.PI / 2;
+                ringMesh.rotation.y = 0.12; // Slanted chevron aesthetic
+                ringMesh.scale.z = 1.1; // Stretch slightly to match slant
+                hammer.add(ringMesh);
+            }
+
+            // --- 4. Pommel (Base cap) ---
+            const pommelGeo = new THREE.CylinderGeometry(0.45, 0.55, 0.6, 32);
+            const pommelMesh = new THREE.Mesh(pommelGeo, silverMaterial);
+            pommelMesh.position.y = -2.2;
+            hammer.add(pommelMesh);
+
+            const pommelCapGeo = new THREE.SphereGeometry(0.55, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+            const pommelCapMesh = new THREE.Mesh(pommelCapGeo, silverMaterial);
+            pommelCapMesh.position.y = -2.5;
+            pommelCapMesh.rotation.x = Math.PI;
+            hammer.add(pommelCapMesh);
+            
+            // Top connector
+            const topCapGeo = new THREE.CylinderGeometry(0.45, 0.55, 0.5, 32);
+            const topCapMesh = new THREE.Mesh(topCapGeo, silverMaterial);
+            topCapMesh.position.y = 3.6;
+            hammer.add(topCapMesh);
+            
+            // --- 5. Leather Strap ---
+            const strapGeo = new THREE.TorusGeometry(0.8, 0.06, 16, 64);
+            const strapMesh = new THREE.Mesh(strapGeo, leatherMaterial);
+            strapMesh.position.y = -3.9;
+            strapMesh.position.x = 0;
+            strapMesh.rotation.y = Math.PI / 2;
+            strapMesh.scale.set(1, 1.8, 1);
+            hammer.add(strapMesh);
+
+            // Final positioning
+            hammer.position.y = -1;
+            hammer.rotation.set(baseRotation.x, baseRotation.y, baseRotation.z);
+
+            scene.add(hammer);
+            
+            // Store materials for glow effects
+            scene.userData.hammerMaterials = [metalMaterial, silverMaterial, darkMetalMaterial];
+        }
+
+        function createLightningSystem() {
+            lightningGroup = new THREE.Group();
+            scene.add(lightningGroup);
+        }
+
+        function generateLightning(start, end, maxBranches = 1) {
+            const points = [];
+            points.push(start);
+            
+            const segments = 12;
+            let current = start.clone();
+            const dir = new THREE.Vector3().subVectors(end, start).normalize();
+            const length = start.distanceTo(end);
+            const step = length / segments;
+
+            for (let i = 1; i < segments; i++) {
+                current.add(dir.clone().multiplyScalar(step));
+                
+                // Add jitter
+                const jitter = 1.8;
+                current.x += (Math.random() - 0.5) * jitter;
+                current.y += (Math.random() - 0.5) * jitter;
+                current.z += (Math.random() - 0.5) * jitter;
+                
+                points.push(current.clone());
+            }
+            points.push(end);
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0xddeeff, 
+                transparent: true, 
+                opacity: 0.9,
+                linewidth: 2 
+            });
+
+            const bolt = new THREE.Line(geometry, material);
+            lightningGroup.add(bolt);
+
+            // Recursively create branches
+            if (maxBranches > 0) {
+                const branchCount = Math.floor(Math.random() * 3);
+                for (let i = 0; i < branchCount; i++) {
+                    const idx = Math.floor(Math.random() * (segments - 2)) + 1;
+                    const bStart = points[idx].clone();
+                    
+                    const bEnd = bStart.clone().add(new THREE.Vector3(
+                        (Math.random() - 0.5) * 10,
+                        (Math.random() - 0.5) * 10,
+                        (Math.random() - 0.5) * 10
+                    ));
+                    
+                    const branch = generateLightning(bStart, bEnd, maxBranches - 1);
+                    if(branch) branch.material.opacity = 0.5;
+                }
+            }
+            
+            return bolt;
+        }
+
+        function updateEnvironment(deltaTime, intensity) {
+            // Animate rain (faster when charging)
+            const speed = 20 + (intensity * 40);
+            const positions = rainGeo.attributes.position.array;
+            for(let i = 0; i < rainCount; i++) {
+                positions[i*3+1] -= speed * deltaTime;
+                if(positions[i*3+1] < -20) {
+                    positions[i*3+1] = 50;
+                }
+            }
+            rainGeo.attributes.position.needsUpdate = true;
+        }
+
+        function updateLightning(deltaTime) {
+            // Clear previous lightning frame
+            while(lightningGroup.children.length > 0){ 
+                const child = lightningGroup.children[0];
+                lightningGroup.remove(child);
+                child.geometry.dispose();
+                child.material.dispose();
+            }
+
+            // Charge interpolation
+            if (isCharging) {
+                chargeLevel = Math.min(1.0, chargeLevel + deltaTime * 2.5);
+            } else {
+                chargeLevel = Math.max(0.0, chargeLevel - deltaTime * 4.0);
+            }
+
+            const intensity = Math.pow(chargeLevel, 2); // Exponential for better feel
+
+            // 1. Update Post-Processing Bloom
+            bloomPass.strength = 0.2 + intensity * 4.0;
+            
+            // 2. Update Scene Lighting
+            scene.userData.blueLight.intensity = intensity * 60;
+            
+            // 3. Screen Flash Effect
+            if (Math.random() < intensity * 0.3) {
+                flashDiv.style.opacity = intensity * (0.3 + Math.random() * 0.5);
+                setTimeout(() => flashDiv.style.opacity = 0, 40);
+            }
+
+            // 4. Hammer Glow (Emissive material modification)
+            const materials = scene.userData.hammerMaterials;
+            materials.forEach(mat => {
+                mat.emissive.setHex(0x3388ff);
+                mat.emissiveIntensity = intensity * 1.5;
+            });
+
+            // 5. Generate Lightning Strikes
+            if (intensity > 0.1) {
+                const strikeChance = intensity;
+                if (Math.random() < strikeChance) {
+                    const numBolts = Math.floor(intensity * 4) + 1;
+                    
+                    for (let i = 0; i < numBolts; i++) {
+                        // Sky origin
+                        const startPoint = new THREE.Vector3(
+                            (Math.random() - 0.5) * 50,
+                            25 + Math.random() * 20,
+                            (Math.random() - 0.5) * 50
+                        );
+
+                        // Target hammer head
+                        const headTarget = new THREE.Vector3(
+                            (Math.random() - 0.5) * 5,
+                            5 + (Math.random() - 0.5) * 2,
+                            (Math.random() - 0.5) * 2
+                        );
+                        // Convert local target to world space
+                        headTarget.applyMatrix4(hammer.matrixWorld);
+
+                        generateLightning(startPoint, headTarget, 2);
+                        
+                        // Add smaller localized arcs on the hammer itself
+                        if (intensity > 0.6 && Math.random() > 0.4) {
+                            const p1 = new THREE.Vector3(
+                                (Math.random() - 0.5) * 3,
+                                5 + (Math.random() - 0.5) * 3,
+                                (Math.random() - 0.5) * 3
+                            ).applyMatrix4(hammer.matrixWorld);
+                            
+                            const p2 = new THREE.Vector3(
+                                (Math.random() - 0.5) * 3,
+                                5 + (Math.random() - 0.5) * 3,
+                                (Math.random() - 0.5) * 3
+                            ).applyMatrix4(hammer.matrixWorld);
+                            
+                            generateLightning(p1, p2, 0);
+                        }
+                    }
+                }
+            }
+            
+            // 6. Camera Shake
+            if (intensity > 0.3) {
+                const shake = (intensity - 0.3) * 0.4;
+                camera.position.x += (Math.random() - 0.5) * shake;
+                camera.position.y += (Math.random() - 0.5) * shake;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const deltaTime = clock.getDelta();
+            const time = clock.getElapsedTime();
+            
+            // Fixed base position
+            const baseX = 0;
+            const baseY = 2;
+            const baseZ = 0;
+
+            if (hammer) {
+                if (isCharging) {
+                    if (isChargingR) {
+                        // Spin violently around local Z axis
+                        hammer.rotation.z -= deltaTime * 30; // 30 rad/sec spin
+                    } else {
+                        // Maintain base rotation if just summoning thunder
+                        hammer.rotation.z = THREE.MathUtils.lerp(hammer.rotation.z, baseRotation.z, 8 * deltaTime);
+                        hammer.rotation.x = THREE.MathUtils.lerp(hammer.rotation.x, baseRotation.x, 8 * deltaTime);
+                        hammer.rotation.y = THREE.MathUtils.lerp(hammer.rotation.y, baseRotation.y, 8 * deltaTime);
+                    }
+                    
+                    // Violent vibration
+                    const shake = chargeLevel * 0.3;
+                    hammer.position.x = baseX + (Math.random() - 0.5) * shake;
+                    hammer.position.y = baseY + (Math.random() - 0.5) * shake;
+                    hammer.position.z = baseZ + (Math.random() - 0.5) * shake;
+                } else {
+                    // Smooth idle hover effect
+                    let hoverY = baseY + Math.sin(time * 2.0) * 0.4;
+                    
+                    hammer.position.x = THREE.MathUtils.lerp(hammer.position.x, baseX, 8 * deltaTime);
+                    hammer.position.y = THREE.MathUtils.lerp(hammer.position.y, hoverY, 8 * deltaTime);
+                    hammer.position.z = THREE.MathUtils.lerp(hammer.position.z, baseZ, 8 * deltaTime);
+                    
+                    // Smoothly return to base rotation
+                    hammer.rotation.z = THREE.MathUtils.lerp(hammer.rotation.z, baseRotation.z, 8 * deltaTime);
+                    hammer.rotation.x = THREE.MathUtils.lerp(hammer.rotation.x, baseRotation.x, 8 * deltaTime);
+                    hammer.rotation.y = THREE.MathUtils.lerp(hammer.rotation.y, baseRotation.y, 8 * deltaTime);
+                }
+            }
+
+            controls.update(); // CRITICAL for OrbitControls damping and autoRotate
+            updateEnvironment(deltaTime, chargeLevel);
+            updateLightning(deltaTime);
+
+            composer.render();
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
