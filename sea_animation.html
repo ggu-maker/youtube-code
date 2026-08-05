@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ocean — Three.js</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#0a1a2a;}
+  canvas{display:block;}
+  #label{
+    position:fixed;
+    bottom:22px; left:50%;
+    transform:translateX(-50%);
+    color:rgba(255,244,222,0.55);
+    font-family:'Helvetica Neue',Arial,sans-serif;
+    font-size:12px;
+    letter-spacing:4px;
+    text-transform:uppercase;
+    pointer-events:none;
+    user-select:none;
+  }
+  #loading{
+    position:fixed; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    background:#0a1a2a; color:#e8d9b8;
+    font-family:'Helvetica Neue',Arial,sans-serif;
+    letter-spacing:2px;
+    font-size:13px;
+    z-index:10;
+  }
+</style>
+</head>
+<body>
+<div id="loading">setting the horizon…</div>
+<div id="label">open ocean, golden hour</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const loadingEl = document.getElementById('loading');
+
+  // ---------- Scene / Camera / Renderer ----------
+  const scene = new THREE.Scene();
+
+  const skyTop = new THREE.Color(0x1b3a5c);
+  const skyHorizon = new THREE.Color(0xf3a768);
+  scene.fog = new THREE.FogExp2(0xb37a5c, 0.010);
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 2000);
+  camera.position.set(0, 10, 40);
+  camera.lookAt(0, 4, -100);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // ---------- Sky gradient (dome) ----------
+  const skyGeo = new THREE.SphereGeometry(900, 32, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms:{
+      topColor:{ value: skyTop },
+      bottomColor:{ value: skyHorizon },
+      offset:{ value: 20 },
+      exponent:{ value: 0.6 }
+    },
+    vertexShader:`
+      varying vec3 vWorldPosition;
+      void main(){
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader:`
+      uniform vec3 topColor;
+      uniform vec3 bottomColor;
+      uniform float offset;
+      uniform float exponent;
+      varying vec3 vWorldPosition;
+      void main(){
+        float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+        gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h,0.0), exponent), 0.0)), 1.0);
+      }
+    `
+  });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+  // ---------- Sun ----------
+  const sunGroup = new THREE.Group();
+  const sunGeo = new THREE.SphereGeometry(10, 32, 32);
+  const sunMat = new THREE.MeshBasicMaterial({ color:0xfff2c8 });
+  const sun = new THREE.Mesh(sunGeo, sunMat);
+  sunGroup.add(sun);
+
+  const glowSprite = (() => {
+    const size = 512;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+    grad.addColorStop(0, 'rgba(255,244,214,0.9)');
+    grad.addColorStop(0.35, 'rgba(255,210,150,0.35)');
+    grad.addColorStop(1, 'rgba(255,180,120,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,size,size);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(160,160,1);
+    return sprite;
+  })();
+  sunGroup.add(glowSprite);
+  sunGroup.position.set(-120, 55, -420);
+  scene.add(sunGroup);
+
+  // ---------- Lighting ----------
+  const ambient = new THREE.AmbientLight(0x9fb6c9, 0.55);
+  scene.add(ambient);
+
+  const sunLight = new THREE.DirectionalLight(0xffe3b0, 1.1);
+  sunLight.position.copy(sunGroup.position).normalize();
+  scene.add(sunLight);
+
+  const fillLight = new THREE.DirectionalLight(0x6ea6c9, 0.35);
+  fillLight.position.set(50, 30, 100);
+  scene.add(fillLight);
+
+  // ---------- Ocean ----------
+  const WIDTH = 900, DEPTH = 900, SEG = 180;
+  const oceanGeo = new THREE.PlaneGeometry(WIDTH, DEPTH, SEG, SEG);
+  oceanGeo.rotateX(-Math.PI/2);
+
+  const posAttr = oceanGeo.attributes.position;
+  const baseY = new Float32Array(posAttr.count);
+  for(let i=0;i<posAttr.count;i++){ baseY[i] = 0; }
+
+  // vertex colors for foam
+  const colors = new Float32Array(posAttr.count * 3);
+  oceanGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const deepColor = new THREE.Color(0x0a5170);
+  const midColor  = new THREE.Color(0x1c7a92);
+  const foamColor = new THREE.Color(0xf3f6ee);
+
+  const oceanMat = new THREE.MeshPhongMaterial({
+    vertexColors: true,
+    shininess: 90,
+    specular: 0xfff2d0,
+    side: THREE.DoubleSide,
+    flatShading: false
+  });
+
+  const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+  scene.add(ocean);
+
+  // Wave parameters: sum of gerstner-ish sine waves
+  const waves = [
+    { dirX:1.0, dirZ:0.15, amp:1.6, len:38, speed:1.15 },
+    { dirX:0.6, dirZ:-0.5, amp:1.0, len:22, speed:1.7 },
+    { dirX:-0.4, dirZ:0.8, amp:0.7, len:14, speed:2.3 },
+    { dirX:0.9, dirZ:0.6,  amp:0.35, len:7,  speed:3.1 },
+    { dirX:-0.8, dirZ:-0.3,amp:0.22, len:4.2,speed:4.0 }
+  ];
+  waves.forEach(w=>{
+    const l = Math.hypot(w.dirX, w.dirZ);
+    w.dirX/=l; w.dirZ/=l;
+    w.freq = 2*Math.PI / w.len;
+  });
+
+  function waveHeight(x, z, t){
+    let y = 0;
+    for(const w of waves){
+      const phase = (x*w.dirX + z*w.dirZ) * w.freq + t * w.speed;
+      y += w.amp * Math.sin(phase);
+    }
+    return y;
+  }
+
+  function updateOcean(t){
+    const pos = oceanGeo.attributes.position;
+    const col = oceanGeo.attributes.color;
+    for(let i=0;i<pos.count;i++){
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+      const y = waveHeight(x, z, t);
+      pos.setY(i, y);
+
+      // foam based on height + crest steepness
+      const h = THREE.MathUtils.clamp((y + 1.2) / 3.0, 0, 1);
+      const c = new THREE.Color();
+      if(h < 0.6){
+        c.copy(deepColor).lerp(midColor, h/0.6);
+      } else {
+        c.copy(midColor).lerp(foamColor, (h-0.6)/0.4);
+      }
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    oceanGeo.computeVertexNormals();
+  }
+  updateOcean(0);
+
+  // ---------- Sun glitter on water (particle sprites) ----------
+  const glitterCount = 260;
+  const glitterGeo = new THREE.BufferGeometry();
+  const glitterPos = new Float32Array(glitterCount*3);
+  for(let i=0;i<glitterCount;i++){
+    const x = (Math.random()-0.5)*140 + sunGroup.position.x*0.4;
+    const z = -Math.random()*380 - 10;
+    glitterPos[i*3] = x;
+    glitterPos[i*3+1] = 0.6;
+    glitterPos[i*3+2] = z;
+  }
+  glitterGeo.setAttribute('position', new THREE.BufferAttribute(glitterPos,3));
+  const glitterMat = new THREE.PointsMaterial({
+    color:0xfff3cf, size:0.9, transparent:true, opacity:0.85,
+    blending:THREE.AdditiveBlending, depthWrite:false
+  });
+  const glitter = new THREE.Points(glitterGeo, glitterMat);
+  scene.add(glitter);
+
+  // ---------- Resize ----------
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- Gentle camera drift ----------
+  let mouseX = 0, mouseY = 0;
+  window.addEventListener('mousemove', (e)=>{
+    mouseX = (e.clientX / window.innerWidth - 0.5);
+    mouseY = (e.clientY / window.innerHeight - 0.5);
+  });
+
+  // ---------- Animate ----------
+  const clock = new THREE.Clock();
+  loadingEl.style.display = 'none';
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+
+    updateOcean(t * 0.6);
+
+    // glitter shimmer
+    const gp = glitterGeo.attributes.position;
+    for(let i=0;i<glitterCount;i++){
+      gp.setY(i, waveHeight(gp.getX(i), gp.getZ(i), t*0.6) + 0.4);
+    }
+    gp.needsUpdate = true;
+    glitterMat.opacity = 0.55 + 0.35*Math.sin(t*3.0);
+
+    camera.position.x += (mouseX*8 - camera.position.x) * 0.01;
+    camera.position.y += (10 + mouseY*3 - camera.position.y) * 0.01;
+    camera.lookAt(0, 4, -100);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
