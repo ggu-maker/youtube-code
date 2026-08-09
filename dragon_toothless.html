@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toothless - Night Fury Flight</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;700&display=swap');
+        
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #1a0b2e 0%, #4a192c 50%, #d15a3a 100%);
+            font-family: 'Inter', sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        #ui {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: rgba(255, 255, 255, 0.7);
+            z-index: 10;
+            pointer-events: none;
+        }
+        h1 {
+            margin: 0;
+            font-weight: 700;
+            font-size: 24px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        p {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            font-weight: 300;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            z-index: 20;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">SUMMONING NIGHT FURY...</div>
+    <div id="ui">
+        <h1>Night Fury</h1>
+        <p>Interactive Flight Simulation (Move Mouse)</p>
+    </div>
+    <div id="canvas-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // --- Scene Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // Use fog to blend elements into the sunset horizon
+        scene.fog = new THREE.FogExp2(0xd15a3a, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.5, 8); // Position behind and slightly above
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        container.appendChild(renderer.domElement);
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0x2a1b4e, 0.8);
+        scene.add(ambientLight);
+
+        const hemiLight = new THREE.HemisphereLight(0xffaa55, 0x1a0b2e, 1.5);
+        scene.add(hemiLight);
+
+        // Sunset directional light (rim light from front-left)
+        const sunsetLight = new THREE.DirectionalLight(0xff7744, 3);
+        sunsetLight.position.set(-10, 5, -15);
+        scene.add(sunsetLight);
+
+        // Soft fill light from top right
+        const fillLight = new THREE.DirectionalLight(0x5566ff, 1);
+        fillLight.position.set(10, 10, 10);
+        scene.add(fillLight);
+
+        // --- Toothless Procedural Model ---
+        const dragon = new THREE.Group();
+        dragon.scale.set(0.5, 0.5, 0.5); // Make him smaller
+        scene.add(dragon);
+
+        // Procedural Scale Bump Map
+        const scaleCanvas = document.createElement('canvas');
+        scaleCanvas.width = 512;
+        scaleCanvas.height = 512;
+        const sCtx = scaleCanvas.getContext('2d');
+        sCtx.fillStyle = '#888888';
+        sCtx.fillRect(0, 0, 512, 512);
+        for(let i=0; i<5000; i++) {
+            const x = Math.random() * 512;
+            const y = Math.random() * 512;
+            const r = Math.random() * 4 + 2;
+            const grad = sCtx.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, '#ffffff');
+            grad.addColorStop(1, '#888888');
+            sCtx.fillStyle = grad;
+            sCtx.beginPath();
+            sCtx.arc(x, y, r, 0, Math.PI * 2);
+            sCtx.fill();
+        }
+        const scaleTex = new THREE.CanvasTexture(scaleCanvas);
+        scaleTex.wrapS = THREE.RepeatWrapping;
+        scaleTex.wrapT = THREE.RepeatWrapping;
+        scaleTex.repeat.set(3, 3);
+
+        // --- Wing Membrane Texture (translucent skin + veins + wrinkles) ---
+        const wingCanvas = document.createElement('canvas');
+        wingCanvas.width = 1024;
+        wingCanvas.height = 1024;
+        const wCtx = wingCanvas.getContext('2d');
+        wCtx.fillStyle = '#0c0d0e';
+        wCtx.fillRect(0, 0, 1024, 1024);
+        // Translucency gradient: darker near the body (top-left, wrist origin), warmer/lighter toward the trailing membrane
+        const wGrad = wCtx.createRadialGradient(90, 760, 40, 600, 480, 780);
+        wGrad.addColorStop(0, 'rgba(30,18,16,0.95)');
+        wGrad.addColorStop(0.55, 'rgba(70,34,26,0.55)');
+        wGrad.addColorStop(1, 'rgba(150,70,45,0.18)');
+        wCtx.fillStyle = wGrad;
+        wCtx.fillRect(0, 0, 1024, 1024);
+        // Vein lines fanning out from the wrist joint toward each finger tip
+        wCtx.strokeStyle = 'rgba(5,5,5,0.55)';
+        wCtx.lineWidth = 4;
+        const veinOriginX = 95, veinOriginY = 780;
+        const veinAngles = [-0.35, -0.05, 0.28, 0.6, 0.95];
+        veinAngles.forEach(angle => {
+            const len = 880;
+            wCtx.beginPath();
+            wCtx.moveTo(veinOriginX, veinOriginY);
+            wCtx.quadraticCurveTo(
+                veinOriginX + len * 0.55 * Math.cos(angle), veinOriginY - len * 0.55 * Math.sin(angle) * 1.15,
+                veinOriginX + len * Math.cos(angle), veinOriginY - len * Math.sin(angle)
+            );
+            wCtx.stroke();
+        });
+        // Fine wrinkles / skin texture
+        wCtx.strokeStyle = 'rgba(0,0,0,0.12)';
+        wCtx.lineWidth = 1;
+        for (let i = 0; i < 500; i++) {
+            const x = Math.random() * 1024, y = Math.random() * 1024;
+            const a = Math.random() * Math.PI * 2;
+            const l = 8 + Math.random() * 26;
+            wCtx.beginPath();
+            wCtx.moveTo(x, y);
+            wCtx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+            wCtx.stroke();
+        }
+        const wingTex = new THREE.CanvasTexture(wingCanvas);
+
+        // Matching bump map for subtle membrane relief
+        const wingBumpCanvas = document.createElement('canvas');
+        wingBumpCanvas.width = 512;
+        wingBumpCanvas.height = 512;
+        const wbCtx = wingBumpCanvas.getContext('2d');
+        wbCtx.fillStyle = '#808080';
+        wbCtx.fillRect(0, 0, 512, 512);
+        wbCtx.strokeStyle = 'rgba(255,255,255,0.4)';
+        wbCtx.lineWidth = 1;
+        for (let i = 0; i < 600; i++) {
+            const x = Math.random() * 512, y = Math.random() * 512;
+            const a = Math.random() * Math.PI * 2;
+            const l = 4 + Math.random() * 14;
+            wbCtx.beginPath();
+            wbCtx.moveTo(x, y);
+            wbCtx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+            wbCtx.stroke();
+        }
+        const wingBumpTex = new THREE.CanvasTexture(wingBumpCanvas);
+
+        // Materials
+        const skinMaterial = new THREE.MeshStandardMaterial({
+            color: 0x111314,
+            roughness: 0.6,
+            metalness: 0.4, // Glossy reptilian look
+            bumpMap: scaleTex,
+            bumpScale: 0.02
+        });
+        const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0x66ff00 }); // Glowing green
+        const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const redTailMaterial = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.6 });
+        const membraneMaterial = new THREE.MeshStandardMaterial({
+            color: 0x1a1414,
+            roughness: 0.45,
+            metalness: 0.25,
+            map: wingTex,
+            bumpMap: wingBumpTex,
+            bumpScale: 0.015,
+            transparent: true,
+            opacity: 0.95,
+            side: THREE.DoubleSide
+        });
+        const boneMat = new THREE.MeshStandardMaterial({ color: 0x08090a, roughness: 0.55, metalness: 0.3 });
+
+        // Body
+        const bodyGeom = new THREE.SphereGeometry(1.0, 32, 32);
+        const body = new THREE.Mesh(bodyGeom, skinMaterial);
+        body.scale.set(0.7, 0.65, 3.2); // Thinner and longer for a sleeker look
+        dragon.add(body);
+
+        // Back Spikes
+        const spikeGeom = new THREE.ConeGeometry(0.1, 0.4, 4);
+        for(let i=0; i<8; i++) {
+            const spike = new THREE.Mesh(spikeGeom, skinMaterial);
+            spike.position.set(0, 1.15 - i*0.05, 1.5 - i*0.4);
+            spike.rotation.x = -Math.PI / 6;
+            dragon.add(spike);
+        }
+
+        // Head Group
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 0.6, 2.8);
+        dragon.add(headGroup);
+
+        const headGeom = new THREE.SphereGeometry(0.85, 32, 32);
+        const head = new THREE.Mesh(headGeom, skinMaterial);
+        head.scale.set(1.2, 0.7, 1);
+        headGroup.add(head);
+
+        // Snout
+        const snoutGeom = new THREE.SphereGeometry(0.55, 16, 16);
+        const snout = new THREE.Mesh(snoutGeom, skinMaterial);
+        snout.scale.set(1.2, 0.6, 1.4);
+        snout.position.set(0, -0.1, 0.6);
+        headGroup.add(snout);
+
+        // Brow ridges
+        const browGeom = new THREE.CylinderGeometry(0.15, 0.1, 0.7, 16);
+        for(let i=0; i<2; i++) {
+            const side = i===0 ? -1 : 1;
+            const brow = new THREE.Mesh(browGeom, skinMaterial);
+            brow.position.set(side * 0.4, 0.45, 0.5);
+            brow.rotation.z = side * 0.2;
+            brow.rotation.x = Math.PI / 2;
+            headGroup.add(brow);
+        }
+
+        // Ears / Appendages (Nubs)
+        for (let i = 0; i < 2; i++) {
+            const side = i === 0 ? -1 : 1;
+            // Main big ear
+            const earGeom = new THREE.ConeGeometry(0.15, 1.2, 16);
+            const ear = new THREE.Mesh(earGeom, skinMaterial);
+            ear.position.set(side * 0.7, 0.4, -0.6);
+            ear.rotation.x = -Math.PI / 3;
+            ear.rotation.z = side * Math.PI / 6;
+            headGroup.add(ear);
+
+            // Smaller nubs
+            for(let j = 1; j <= 2; j++) {
+                const nubGeom = new THREE.ConeGeometry(0.1, 0.6 - j*0.1, 16);
+                const nub = new THREE.Mesh(nubGeom, skinMaterial);
+                nub.position.set(side * (0.8 - j*0.1), 0.1 - j*0.1, -0.4 - j*0.2);
+                nub.rotation.x = -Math.PI / 4;
+                nub.rotation.z = side * (Math.PI / 4);
+                headGroup.add(nub);
+            }
+        }
+
+        // Eyes
+        for(let i = 0; i < 2; i++) {
+            const side = i === 0 ? -1 : 1;
+            
+            const eyeGeom = new THREE.SphereGeometry(0.2, 16, 16);
+            const eye = new THREE.Mesh(eyeGeom, eyeMaterial);
+            eye.position.set(side * 0.5, 0.25, 0.65);
+            eye.scale.set(1.2, 0.8, 0.3);
+            eye.rotation.y = side * 0.3;
+            eye.rotation.x = -0.2;
+            headGroup.add(eye);
+            
+            const pupilGeom = new THREE.SphereGeometry(0.1, 16, 16);
+            const pupil = new THREE.Mesh(pupilGeom, pupilMaterial);
+            pupil.position.set(side * 0.5, 0.25, 0.72);
+            pupil.scale.set(0.4, 0.9, 0.3);
+            pupil.rotation.y = side * 0.3;
+            pupil.rotation.x = -0.2;
+            headGroup.add(pupil);
+        }
+
+        // Legs (hanging back during flight)
+        const thighGeom = new THREE.CylinderGeometry(0.2, 0.15, 0.6, 16);
+        const calfGeom = new THREE.CylinderGeometry(0.12, 0.08, 0.5, 16);
+        
+        for(let i=0; i<4; i++) {
+            const isFront = i < 2;
+            const isLeft = i % 2 === 0;
+            const side = isLeft ? -1 : 1;
+            
+            const legGroup = new THREE.Group();
+            legGroup.position.set(
+                side * 0.7,
+                -0.3,
+                isFront ? 1.2 : -1.0
+            );
+            
+            const thigh = new THREE.Mesh(thighGeom, skinMaterial);
+            thigh.rotation.x = isFront ? 1.0 : 1.4;
+            thigh.rotation.z = side * 0.3;
+            legGroup.add(thigh);
+            
+            const calf = new THREE.Mesh(calfGeom, skinMaterial);
+            calf.position.set(side * 0.2, -0.6, isFront ? -0.4 : -0.6);
+            calf.rotation.x = isFront ? 0.5 : 1.0;
+            calf.rotation.z = side * 0.1;
+            legGroup.add(calf);
+            
+            dragon.add(legGroup);
+        }
+
+        // --- Wings (rebuilt for a smoother, more natural four-finger silhouette) ---
+        const wingGroup = new THREE.Group();
+        wingGroup.position.set(0, 0.3, 0.5);
+        wingGroup.scale.set(1.8, 1.8, 1.8);
+        dragon.add(wingGroup);
+
+        // Wing skeleton reference points (verified silhouette: shoulder -> wrist -> 4 fanning fingers -> hip)
+        const WING_SHOULDER = [0, 0];
+        const WING_WRIST    = [4.6, 0.5];
+        const WING_TIP1     = [12.8, -0.6];   // leading finger, longest
+        const WING_TIP2     = [11.6, -3.9];
+        const WING_TIP3     = [9.0, -6.3];
+        const WING_TIP4     = [5.3, -7.4];    // shortest, closest to body
+        const WING_HIP      = [0.9, -3.2];
+
+        const wingShape = new THREE.Shape();
+        wingShape.moveTo(...WING_SHOULDER);
+        wingShape.quadraticCurveTo(2.0, 1.1, ...WING_WRIST);          // shoulder to wrist (arm)
+        wingShape.quadraticCurveTo(9.0, 0.3, ...WING_TIP1);           // wrist to tip1 (leading edge sweep)
+        wingShape.quadraticCurveTo(10.6, -1.7, ...WING_TIP2);         // scallop 1
+        wingShape.quadraticCurveTo(8.9, -4.2, ...WING_TIP3);          // scallop 2
+        wingShape.quadraticCurveTo(6.6, -6.1, ...WING_TIP4);          // scallop 3
+        wingShape.quadraticCurveTo(2.4, -6.0, ...WING_HIP);           // trailing membrane back toward hip
+        wingShape.quadraticCurveTo(0.3, -1.5, ...WING_SHOULDER);      // close back to shoulder
+
+        // Higher curve resolution for smooth, non-jagged edges
+        const wingGeom = new THREE.ShapeGeometry(wingShape, 32);
+
+        // Bone chain: shoulder -> wrist (arm), then 4 finger bones fanning out from the wrist
+        const createBones = (wing) => {
+            const seg = ([x1, y1], [x2, y2], radiusStart, radiusEnd) => {
+                const dx = x2 - x1, dy = y2 - y1;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+                const b = new THREE.Mesh(new THREE.CylinderGeometry(radiusEnd, radiusStart, length, 8), boneMat);
+                b.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0.03);
+                b.rotation.z = angle - Math.PI / 2;
+                wing.add(b);
+                const joint = new THREE.Mesh(new THREE.SphereGeometry(radiusStart * 1.15, 10, 10), boneMat);
+                joint.position.set(x1, y1, 0.03);
+                wing.add(joint);
+            };
+            seg(WING_SHOULDER, WING_WRIST, 0.16, 0.10);
+            seg(WING_WRIST, WING_TIP1, 0.09, 0.03);
+            seg(WING_WRIST, WING_TIP2, 0.08, 0.03);
+            seg(WING_WRIST, WING_TIP3, 0.07, 0.025);
+            seg(WING_WRIST, WING_TIP4, 0.06, 0.02);
+        };
+
+        // Right Wing
+        const rightWingPivot = new THREE.Group();
+        const rightWing = new THREE.Mesh(wingGeom, membraneMaterial);
+        createBones(rightWing);
+        rightWing.rotation.x = -Math.PI / 2;
+        rightWing.position.set(0.5, 0, 0);
+        rightWingPivot.add(rightWing);
+        wingGroup.add(rightWingPivot);
+
+        // Left Wing
+        const leftWingPivot = new THREE.Group();
+        const leftWing = new THREE.Mesh(wingGeom, membraneMaterial);
+        createBones(leftWing);
+        leftWing.scale.x = -1;
+        leftWing.rotation.x = -Math.PI / 2;
+        leftWing.position.set(-0.5, 0, 0);
+        leftWingPivot.add(leftWing);
+        wingGroup.add(leftWingPivot);
+
+        // Small shoulder blade bumps so the wing root blends into the body
+        const shoulderGeom = new THREE.SphereGeometry(0.28, 16, 16);
+        const rightShoulder = new THREE.Mesh(shoulderGeom, skinMaterial);
+        rightShoulder.scale.set(1, 0.8, 1.3);
+        rightShoulder.position.set(0.55, 0.05, 0.55);
+        dragon.add(rightShoulder);
+        const leftShoulder = rightShoulder.clone();
+        leftShoulder.position.x = -0.55;
+        dragon.add(leftShoulder);
+
+        // Tail
+        const tailGroup = new THREE.Group();
+        tailGroup.position.set(0, 0.2, -2.6); // Moved further back to match longer body
+        dragon.add(tailGroup);
+
+        const tailSegmentsCount = 12;
+        const tailParts = [];
+        let currentParent = tailGroup;
+        
+        for (let i = 0; i < tailSegmentsCount; i++) {
+            const sGroup = new THREE.Group();
+            sGroup.position.set(0, 0, -0.4);
+            
+            const scaleFactor = 1 - (i / tailSegmentsCount) * 0.8;
+            const segGeom = new THREE.SphereGeometry(0.5 * scaleFactor, 16, 16);
+            const seg = new THREE.Mesh(segGeom, skinMaterial);
+            seg.scale.set(1, 0.7, 1.5);
+            sGroup.add(seg);
+            
+            currentParent.add(sGroup);
+            currentParent = sGroup;
+            tailParts.push(sGroup);
+        }
+
+        // Tail Fins
+        const finShape = new THREE.Shape();
+        finShape.moveTo(0, 0);
+        finShape.quadraticCurveTo(1.5, -0.5, 2.5, -3);
+        finShape.lineTo(0.8, -2);
+        finShape.lineTo(0.2, -1);
+        finShape.lineTo(0,0);
+
+        const finGeom = new THREE.ShapeGeometry(finShape);
+        
+        // Right black fin
+        const rightFin = new THREE.Mesh(finGeom, skinMaterial);
+        rightFin.rotation.x = -Math.PI / 2;
+        rightFin.position.set(0.1, 0, 0);
+        currentParent.add(rightFin);
+
+        // Left red fin (the prosthetic)
+        const leftFin = new THREE.Mesh(finGeom, redTailMaterial);
+        leftFin.scale.x = -1;
+        leftFin.rotation.x = -Math.PI / 2;
+        leftFin.position.set(-0.1, 0, 0);
+        currentParent.add(leftFin);
+
+        // Mini fins at tail base
+        const miniFinShape = new THREE.Shape();
+        miniFinShape.moveTo(0,0);
+        miniFinShape.quadraticCurveTo(1, -0.2, 1.5, -1.5);
+        miniFinShape.lineTo(0.5, -1);
+        miniFinShape.lineTo(0,0);
+        
+        const miniFinGeom = new THREE.ShapeGeometry(miniFinShape);
+        const miniRight = new THREE.Mesh(miniFinGeom, skinMaterial);
+        miniRight.rotation.x = -Math.PI / 2;
+        tailGroup.add(miniRight);
+        
+        const miniLeft = new THREE.Mesh(miniFinGeom, skinMaterial);
+        miniLeft.scale.x = -1;
+        miniLeft.rotation.x = -Math.PI / 2;
+        tailGroup.add(miniLeft);
+
+        // Ensure Toothless faces away from camera initially
+        dragon.rotation.y = Math.PI;
+
+        // --- Environment Effects (Clouds & Wind) ---
+        
+        // Procedural Cloud Texture
+        const cloudCanvas = document.createElement('canvas');
+        cloudCanvas.width = 128;
+        cloudCanvas.height = 128;
+        const ctx = cloudCanvas.getContext('2d');
+        const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 128, 128);
+        const cloudTex = new THREE.CanvasTexture(cloudCanvas);
+
+        const cloudMat = new THREE.SpriteMaterial({
+            map: cloudTex,
+            color: 0xff8866, // Sunset lit clouds
+            transparent: true,
+            opacity: 0.15,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        const clouds = [];
+        for(let i = 0; i < 150; i++) {
+            const cloud = new THREE.Sprite(cloudMat);
+            cloud.position.set(
+                (Math.random() - 0.5) * 150,
+                (Math.random() - 0.5) * 100 - 10,
+                (Math.random() - 0.5) * 200
+            );
+            cloud.scale.set(30 + Math.random() * 40, 20 + Math.random() * 30, 1);
+            scene.add(cloud);
+            clouds.push(cloud);
+        }
+
+        // Wind streaks (particles)
+        const windGeo = new THREE.BufferGeometry();
+        const windVertices = [];
+        for(let i=0; i<200; i++) {
+            windVertices.push(
+                (Math.random() - 0.5) * 80,
+                (Math.random() - 0.5) * 60,
+                (Math.random() - 0.5) * 100
+            );
+        }
+        windGeo.setAttribute('position', new THREE.Float32BufferAttribute(windVertices, 3));
+        
+        // Use a stretched particle to look like a line
+        const windMat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.2,
+            transparent: true,
+            opacity: 0.4,
+            blending: THREE.AdditiveBlending
+        });
+        const windSystem = new THREE.Points(windGeo, windMat);
+        scene.add(windSystem);
+
+
+        // --- Interaction & Animation ---
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        const clock = new THREE.Clock();
+        
+        // Remove loading text
+        setTimeout(() => {
+            document.getElementById('loading').style.opacity = '0';
+        }, 1000);
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // Smooth mouse targets
+            targetX += (mouseX - targetX) * 5 * delta;
+            targetY += (mouseY - targetY) * 5 * delta;
+
+            // Wing Flapping (Sine wave)
+            const flapSpeed = 12; // fast flaps
+            const flapAmp = 0.5;
+            const flap = Math.sin(time * flapSpeed);
+            
+            leftWingPivot.rotation.z = -flap * flapAmp;
+            rightWingPivot.rotation.z = flap * flapAmp;
+            
+            // Flex wings slightly on Y axis for realism
+            leftWingPivot.rotation.y = Math.cos(time * flapSpeed) * 0.1;
+            rightWingPivot.rotation.y = -Math.cos(time * flapSpeed) * 0.1;
+
+            // Membrane camber/flex: subtle twist and stretch so the wing doesn't look like a rigid flat plate
+            const camber = Math.cos(time * flapSpeed) * 0.18;
+            rightWing.rotation.y = camber;
+            leftWing.rotation.y = -camber;
+            const stretch = 1 + Math.abs(flap) * 0.04;
+            rightWing.scale.set(1, stretch, 1);
+            leftWing.scale.set(-1, stretch, 1);
+
+            // Body Bobbing & Pitching
+            dragon.position.y = Math.sin(time * flapSpeed * 0.5) * 0.1 + (targetY * 2);
+            dragon.position.x = targetX * 4;
+
+            // Banking (Roll) based on mouse X
+            const bankAngle = targetX * -Math.PI / 4;
+            dragon.rotation.z = bankAngle + Math.sin(time * 2) * 0.05; // Base roll + slight idle wobble
+            
+            // Pitching based on mouse Y
+            const pitchAngle = targetY * Math.PI / 6;
+            dragon.rotation.x = pitchAngle + Math.cos(time * 3) * 0.05;
+
+            // Head tracking slightly ahead of body
+            headGroup.rotation.y = targetX * 0.5; // removed Math.PI because it inherits from dragon
+            headGroup.rotation.x = targetY * -0.3;
+            headGroup.rotation.z = targetX * 0.2;
+
+            // Tail Undulation
+            tailParts.forEach((part, i) => {
+                // Sway side to side
+                part.rotation.y = Math.sin(time * 8 - i * 0.5) * 0.08;
+                // React to banking (tail swings opposite to balance)
+                part.rotation.z = bankAngle * 0.1;
+            });
+
+            // Move Clouds (Fly past camera)
+            const speed = 40;
+            clouds.forEach(cloud => {
+                cloud.position.z += speed * delta;
+                if (cloud.position.z > camera.position.z + 10) {
+                    cloud.position.z = -150;
+                    cloud.position.x = (Math.random() - 0.5) * 150 + (targetX * 50); // Shift spawn slightly with mouse
+                    cloud.position.y = (Math.random() - 0.5) * 100 - 10;
+                }
+            });
+
+            // Move Wind Particles
+            const positions = windGeo.attributes.position.array;
+            for(let i=0; i<positions.length; i+=3) {
+                positions[i+2] += speed * 3 * delta;
+                if (positions[i+2] > camera.position.z + 5) {
+                    positions[i+2] = -100;
+                    positions[i] = (Math.random() - 0.5) * 80;
+                    positions[i+1] = (Math.random() - 0.5) * 60;
+                }
+            }
+            windGeo.attributes.position.needsUpdate = true;
+
+            // Camera subtle lag for cinematic feel
+            camera.position.x += (targetX * 1.5 - camera.position.x) * 2 * delta;
+            camera.position.y += ((targetY * -1) + 1.5 - camera.position.y) * 2 * delta;
+            camera.lookAt(0, dragon.position.y * 0.5, 0);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
+
