@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Deadpool Logo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            /* Subtle radial background to focus on logo */
+            background: radial-gradient(circle at center, #2a2a2a 0%, #0a0a0a 100%);
+        }
+
+        .container {
+            position: relative;
+            cursor: pointer;
+            /* Springy transition on hover */
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 25px 35px rgba(0, 0, 0, 0.8));
+        }
+
+        .container:hover {
+            transform: scale(1.03) translateY(-5px);
+        }
+
+        .container:active {
+            transform: scale(0.97) translateY(2px);
+            transition: transform 0.1s ease-out;
+        }
+
+        svg {
+            width: 450px;
+            height: 450px;
+            display: block;
+        }
+
+        /* Base colors and grunge effect */
+        .base-circle {
+            fill: #b51c1c; /* Deep, slightly desaturated red */
+            stroke: #1a1a1a;
+            stroke-width: 12;
+        }
+
+        /* Add a subtle inner shadow to the red circle using a radial gradient */
+        .base-inner-shadow {
+            fill: url(#red-gradient);
+            pointer-events: none;
+        }
+
+        .black-socket {
+            fill: #141414;
+        }
+
+        .eye {
+            fill: #f4f4f4;
+            /* The eyes need to scale from their center vertically to blink */
+            transform-origin: center;
+            will-change: transform;
+            /* Default no transition so mouse tracking is instant */
+        }
+
+        .eye-left {
+            transform-origin: 120px 170px;
+        }
+        
+        .eye-right {
+            transform-origin: 280px 170px;
+        }
+
+        /* State classes for CSS transitions */
+        .animated-eye {
+            transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .blink {
+            transform: scaleY(0.05) !important;
+        }
+
+        .squint {
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+            /* Squint shrinks vertically, moves up slightly, and maybe rotates a bit inwards for cuteness */
+            transform: scaleY(0.35) translateY(15px) !important;
+        }
+
+        /* Individual squint rotations for a cuter/angrier look */
+        .squint-left {
+            transform: scaleY(0.35) translateY(15px) rotate(5deg) !important;
+        }
+        .squint-right {
+            transform: scaleY(0.35) translateY(15px) rotate(-5deg) !important;
+        }
+
+        .text-overlay {
+            position: absolute;
+            bottom: -60px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-weight: 800;
+            font-size: 1.5rem;
+            letter-spacing: 4px;
+            opacity: 0;
+            text-transform: uppercase;
+            color: #b51c1c;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .container:hover .text-overlay {
+            opacity: 0.8;
+            transform: translateX(-50%) translateY(-10px);
+        }
+
+        /* Claw Marks Animation */
+        #claws {
+            pointer-events: none;
+            opacity: 0;
+            transform: scale(1.08) translate(5px, -5px);
+            transform-origin: center;
+            transition: opacity 0.1s, transform 0.1s;
+        }
+
+        .slashed #claws {
+            opacity: 1;
+            transform: scale(1) translate(0, 0);
+            transition: opacity 0.05s ease-out, transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .claw {
+            fill: #151515; /* Dark textured void */
+            stroke: #c8c8c8; /* Bright metallic torn edge */
+            stroke-width: 7;
+        }
+
+        /* Screen shake animation for the strike */
+        @keyframes shake {
+            0% { transform: translate(2px, 2px) rotate(0deg) scale(1.03); }
+            10% { transform: translate(-2px, -3px) rotate(-1deg) scale(1.03); }
+            20% { transform: translate(-4px, 0px) rotate(1deg) scale(1.03); }
+            30% { transform: translate(4px, 3px) rotate(0deg) scale(1.03); }
+            40% { transform: translate(2px, -2px) rotate(1deg) scale(1.03); }
+            50% { transform: translate(-2px, 3px) rotate(-1deg) scale(1.03); }
+            60% { transform: translate(-4px, 2px) rotate(0deg) scale(1.03); }
+            70% { transform: translate(4px, 2px) rotate(-1deg) scale(1.03); }
+            80% { transform: translate(-2px, -2px) rotate(1deg) scale(1.03); }
+            90% { transform: translate(2px, 3px) rotate(0deg) scale(1.03); }
+            100% { transform: translate(0px, 0px) rotate(0deg) scale(1.03); }
+        }
+
+        .shake {
+            animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both !important;
+            filter: drop-shadow(0 25px 45px rgba(255, 0, 0, 0.2));
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container" id="logo-container">
+        <svg viewBox="0 0 400 400">
+            <defs>
+                <!-- Gradient for the red base to look 3D/textured -->
+                <radialGradient id="red-gradient" cx="40%" cy="30%" r="70%" fx="40%" fy="30%">
+                    <stop offset="0%" stop-color="rgba(255,255,255,0.15)" />
+                    <stop offset="60%" stop-color="rgba(0,0,0,0)" />
+                    <stop offset="100%" stop-color="rgba(0,0,0,0.6)" />
+                </radialGradient>
+
+                <!-- Filter for a subtle leather/grunge texture -->
+                <filter id="noise">
+                    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/>
+                    <feColorMatrix type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0 0 0 0.08 0" />
+                    <feBlend mode="multiply" in2="SourceGraphic" />
+                </filter>
+                
+                <!-- Inner shadow filter for the black sockets to give them depth -->
+                <filter id="inset-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feOffset dx="0" dy="5"/> <!-- Shadow Offset -->
+                  <feGaussianBlur stdDeviation="6" result="offset-blur"/> <!-- Shadow Blur -->
+                  <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"/> <!-- Invert drop shadow to make inner shadow -->
+                  <feFlood flood-color="black" flood-opacity="0.9" result="color"/> <!-- Shadow Color -->
+                  <feComposite operator="in" in="color" in2="inverse" result="shadow"/> <!-- Clip color inside shadow -->
+                  <feComposite operator="over" in="shadow" in2="SourceGraphic"/> <!-- Put shadow over original object -->
+                </filter>
+
+                <!-- Hyper-Realistic Torn Metal Filter -->
+                <filter id="torn-cut" x="-30%" y="-30%" width="160%" height="160%">
+                    <!-- 1. Intense Fractal Noise for jagged tearing -->
+                    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="5" result="noise" />
+                    
+                    <!-- 2. Displace the original path aggressively -->
+                    <feDisplacementMap in="SourceGraphic" in2="noise" scale="22" xChannelSelector="R" yChannelSelector="G" result="jagged_shape" />
+                    
+                    <!-- 3. Inner shadow (simulating depth inside the cut) -->
+                    <!-- Invert alpha -->
+                    <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1 1" in="jagged_shape" result="inv_alpha"/>
+                    <!-- Offset & Blur -->
+                    <feOffset dx="6" dy="8" in="inv_alpha" result="shadow_offset"/>
+                    <feGaussianBlur stdDeviation="5" in="shadow_offset" result="shadow_blur"/>
+                    <!-- Clip to original shape -->
+                    <feComposite operator="in" in="shadow_blur" in2="jagged_shape" result="inner_shadow_alpha"/>
+                    <!-- Color the inner shadow pure black -->
+                    <feFlood flood-color="#000" flood-opacity="1" result="black"/>
+                    <feComposite operator="in" in="black" in2="inner_shadow_alpha" result="inner_shadow"/>
+                    
+                    <!-- 4. Shiny Bevel on the torn edges (the silver stroke) -->
+                    <feSpecularLighting in="jagged_shape" surfaceScale="4" specularConstant="1.5" specularExponent="25" lighting-color="#ffffff" result="specular">
+                        <fePointLight x="-50" y="-100" z="250" />
+                    </feSpecularLighting>
+                    <!-- Combine specular highlight only on the opaque parts -->
+                    <feComposite operator="in" in="specular" in2="jagged_shape" result="highlight"/>
+
+                    <!-- 5. Massive Outer Drop shadow (the flaps resting on the red logo) -->
+                    <feDropShadow dx="3" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.95" in="jagged_shape" result="tight_shadow" />
+                    <feDropShadow dx="15" dy="25" stdDeviation="15" flood-color="#000" flood-opacity="0.7" in="tight_shadow" result="drop_shadow" />
+                    
+                    <!-- 6. Final Composite -->
+                    <feMerge>
+                        <!-- Base shadow -->
+                        <feMergeNode in="drop_shadow" />
+                        <!-- The shape itself (dark fill, grey stroke) -->
+                        <feMergeNode in="jagged_shape" />
+                        <!-- Inner depth shadow -->
+                        <feMergeNode in="inner_shadow" />
+                        <!-- Highlights on the torn metal -->
+                        <feMergeNode in="highlight" />
+                    </feMerge>
+                </filter>
+
+                <!-- Clipping masks for the eyes so they don't bleed out of the sockets -->
+                <clipPath id="left-socket-clip">
+                    <path d="M 185, 40 A 160, 160 0 0,0 185, 360 Z" />
+                </clipPath>
+                <clipPath id="right-socket-clip">
+                    <path d="M 215, 40 A 160, 160 0 0,1 215, 360 Z" />
+                </clipPath>
+            </defs>
+
+            <!-- Base Layer -->
+            <!-- Outer circle with red fill -->
+            <circle class="base-circle" cx="200" cy="200" r="180" />
+            
+            <!-- Texture overlay on the red circle -->
+            <circle cx="200" cy="200" r="174" filter="url(#noise)" opacity="0.8" pointer-events="none" />
+            
+            <!-- Inner shadow gradient overlay (lighting) -->
+            <circle class="base-inner-shadow" cx="200" cy="200" r="174" />
+
+            <!-- Sockets Layer -->
+            <!-- Left Black Socket -->
+            <path class="black-socket" d="M 185, 40 A 160, 160 0 0,0 185, 360 Z" filter="url(#inset-shadow)" />
+            <!-- Texture over left socket -->
+            <path d="M 185, 40 A 160, 160 0 0,0 185, 360 Z" filter="url(#noise)" opacity="0.6" pointer-events="none" />
+            
+            <!-- Right Black Socket -->
+            <path class="black-socket" d="M 215, 40 A 160, 160 0 0,1 215, 360 Z" filter="url(#inset-shadow)" />
+            <!-- Texture over right socket -->
+            <path d="M 215, 40 A 160, 160 0 0,1 215, 360 Z" filter="url(#noise)" opacity="0.6" pointer-events="none" />
+
+            <!-- Eyes Layer (Clipped to Sockets) -->
+            <!-- Left Eye -->
+            <g clip-path="url(#left-socket-clip)">
+                <!-- Eye Shape: Inner point (150,210), Top outer (60,130), Bottom curve (90, 180) -->
+                <!-- We use SVG path for a crisp shape -->
+                <path id="left-eye" class="eye eye-left" d="M 160,205 C 130,165 90,135 60,135 C 75,160 90,185 110,195 C 130,205 145,215 160,205 Z" />
+            </g>
+
+            <!-- Right Eye -->
+            <g clip-path="url(#right-socket-clip)">
+                <!-- Mirrored path for right eye -->
+                <path id="right-eye" class="eye eye-right" d="M 240,205 C 270,165 310,135 340,135 C 325,160 310,185 290,195 C 270,205 255,215 240,205 Z" />
+            </g>
+
+            <!-- Hyper-Realistic Bear Claw Marks Overlay -->
+            <g id="claws" filter="url(#torn-cut)">
+                <!-- Claw 1 (Top Left) -->
+                <path class="claw" d="M 230,-20 C 180,40 120,160 -20,310 C -10,330 20,300 40,270 C 140,140 200,30 260,-10 Z" />
+                <!-- Claw 2 (Middle) -->
+                <path class="claw" d="M 350,-20 C 270,80 150,230 30,430 C 50,450 80,420 100,390 C 210,240 310,100 390,-10 Z" />
+                <!-- Claw 3 (Bottom Right) -->
+                <path class="claw" d="M 430,40 C 350,130 250,260 120,460 C 140,480 170,450 190,420 C 310,280 400,160 470,60 Z" />
+            </g>
+
+        </svg>
+        <div class="text-overlay">MAXIMUM EFFORT</div>
+    </div>
+
+    <script>
+        const container = document.getElementById('logo-container');
+        const leftEye = document.getElementById('left-eye');
+        const rightEye = document.getElementById('right-eye');
+        
+        let isBlinking = false;
+        let isSquinting = false;
+        let hasSlashed = false;
+
+        let eyeX = 0;
+        let eyeY = 0;
+
+        // Smooth cursor tracking variables
+        let targetEyeX = 0;
+        let targetEyeY = 0;
+        
+        // Animation loop for smooth interpolation
+        function render() {
+            if (!isBlinking && !isSquinting) {
+                // Lerp (Linear Interpolation) for smooth eye movement
+                eyeX += (targetEyeX - eyeX) * 0.2; // 0.2 is the speed/smoothness factor
+                eyeY += (targetEyeY - eyeY) * 0.2;
+
+                // Apply transform directly for tracking
+                leftEye.style.transform = `translate(${eyeX}px, ${eyeY}px)`;
+                rightEye.style.transform = `translate(${eyeX}px, ${eyeY}px)`;
+            }
+            requestAnimationFrame(render);
+        }
+        
+        // Start animation loop
+        render();
+
+        // Eye tracking logic
+        document.addEventListener('mousemove', (e) => {
+            if (isSquinting) return;
+
+            const rect = container.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            const distX = e.clientX - centerX;
+            const distY = e.clientY - centerY;
+
+            // Maximum pixel distance the eye can move
+            const maxMoveX = 22;
+            const maxMoveY = 18;
+            
+            // Normalize distance relative to screen size to make it feel natural
+            let normX = distX / (window.innerWidth / 2);
+            let normY = distY / (window.innerHeight / 2);
+
+            // Cap at -1 to 1
+            normX = Math.max(-1, Math.min(1, normX));
+            normY = Math.max(-1, Math.min(1, normY));
+
+            targetEyeX = normX * maxMoveX;
+            targetEyeY = normY * maxMoveY;
+        });
+
+        // Blinking Logic
+        function blink() {
+            if (isSquinting) {
+                scheduleNextBlink();
+                return;
+            }
+            
+            isBlinking = true;
+            
+            // Add animation class so CSS transition kicks in for the blink
+            leftEye.classList.add('animated-eye', 'blink');
+            rightEye.classList.add('animated-eye', 'blink');
+
+            // Temporarily clear translation so it scales nicely from origin
+            leftEye.style.transform = '';
+            rightEye.style.transform = '';
+
+            setTimeout(() => {
+                leftEye.classList.remove('blink');
+                rightEye.classList.remove('blink');
+                
+                // Wait for blink to finish opening before resuming tracking
+                setTimeout(() => {
+                    leftEye.classList.remove('animated-eye');
+                    rightEye.classList.remove('animated-eye');
+                    isBlinking = false;
+                    
+                    // Instantly snap to current tracked position so there's no jump
+                    leftEye.style.transform = `translate(${eyeX}px, ${eyeY}px)`;
+                    rightEye.style.transform = `translate(${eyeX}px, ${eyeY}px)`;
+                    
+                }, 150); // Matches CSS transition time
+            }, 100); // How long the eye stays shut
+
+            scheduleNextBlink();
+        }
+
+        function scheduleNextBlink() {
+            // Random interval between 2 and 6 seconds
+            const nextBlink = Math.random() * 4000 + 2000;
+            // 10% chance for a quick double blink
+            if (Math.random() > 0.9) {
+                setTimeout(() => {
+                    if(!isSquinting) blink();
+                }, 300);
+            }
+            setTimeout(blink, nextBlink);
+        }
+
+        // Start blinking loop
+        setTimeout(blink, 2000);
+
+        // Interaction (Squint on click/hold)
+        container.addEventListener('mousedown', () => {
+            isSquinting = true;
+            leftEye.classList.add('animated-eye', 'squint-left');
+            rightEye.classList.add('animated-eye', 'squint-right');
+            // Remove inline style so class transform takes over
+            leftEye.style.transform = '';
+            rightEye.style.transform = '';
+        });
+
+        const releaseSquint = () => {
+            if (!isSquinting) return;
+            
+            leftEye.classList.remove('squint-left');
+            rightEye.classList.remove('squint-right');
+            
+            // Wait for transition to finish before removing animated class and resuming tracking
+            setTimeout(() => {
+                leftEye.classList.remove('animated-eye');
+                rightEye.classList.remove('animated-eye');
+                isSquinting = false;
+            }, 300); // Matches squint transition time
+        };
+
+        window.addEventListener('mouseup', releaseSquint);
+        
+        // Touch support for mobile cuteness
+        container.addEventListener('touchstart', (e) => {
+            isSquinting = true;
+            leftEye.classList.add('animated-eye', 'squint-left');
+            rightEye.classList.add('animated-eye', 'squint-right');
+            leftEye.style.transform = '';
+            rightEye.style.transform = '';
+        }, { passive: true });
+
+        window.addEventListener('touchend', releaseSquint);
+
+        // Claw Mark trigger logic
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault(); // Prevent page scroll
+                
+                // Trigger container screen shake for impact
+                container.classList.remove('shake'); 
+                void container.offsetWidth; 
+                container.classList.add('shake');
+                
+                // Toggle the slashed state
+                if (hasSlashed) {
+                    container.classList.remove('slashed');
+                    hasSlashed = false;
+                } else {
+                    container.classList.add('slashed');
+                    hasSlashed = true;
+                }
+                
+                // Also make Deadpool squint in reaction to getting slashed
+                if (!isSquinting && hasSlashed) {
+                    isSquinting = true;
+                    leftEye.classList.add('animated-eye', 'squint-left');
+                    rightEye.classList.add('animated-eye', 'squint-right');
+                    leftEye.style.transform = '';
+                    rightEye.style.transform = '';
+                    
+                    setTimeout(() => {
+                        leftEye.classList.remove('squint-left');
+                        rightEye.classList.remove('squint-right');
+                        setTimeout(() => {
+                            leftEye.classList.remove('animated-eye');
+                            rightEye.classList.remove('animated-eye');
+                            isSquinting = false;
+                        }, 300);
+                    }, 500); 
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>
