@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Formula 1 — Cinematic Launch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Poppins,sans-serif}
+body{background:#05060a}
+.stage{
+  position:relative;width:100%;height:100vh;min-height:560px;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 48%,#f9f9fa 0%,#e9eaed 43%,#b9bdc5 100%);
+}
+.stage::before{
+  content:"";position:absolute;inset:-20%;
+  background:radial-gradient(circle at 50% 50%,rgba(255,20,65,.16),transparent 34%);
+  animation:ambient 3s ease-in-out infinite;pointer-events:none
+}
+@keyframes ambient{50%{transform:scale(1.12);opacity:.65}}
+
+.title{position:relative;z-index:20;text-align:center;margin-bottom:2px}
+.title h1{margin:0;font-size:clamp(34px,5vw,60px);font-weight:800;letter-spacing:4px;color:#08090d}
+.title p{margin:5px 0 0;font-size:clamp(11px,1.4vw,17px);font-style:italic;font-weight:600;letter-spacing:7px;color:#202126}
+
+.carwrap{position:relative;z-index:10;width:min(1120px,97vw)}
+svg{display:block;width:100%;height:auto;overflow:visible}
+
+.car{transform-box:fill-box;transform-origin:center;animation:idle 1.8s ease-in-out infinite}
+@keyframes idle{50%{transform:translateY(-3px)}}
+
+.launch .car{animation:launchCar 1.5s cubic-bezier(.15,.7,.2,1) forwards}
+@keyframes launchCar{
+  0%{transform:translateX(0) translateY(-3px)}
+  18%{transform:translateX(-4px) translateY(0)}
+  30%{transform:translateX(8px) translateY(-1px)}
+  55%{transform:translateX(70px) translateY(-2px)}
+  100%{transform:translateX(0) translateY(-3px)}
+}
+
+.wheel{transform-box:fill-box;transform-origin:center;animation:spin .55s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.launch .wheel{animation-duration:.09s}
+
+.halo{animation:halo 1.2s ease-in-out infinite}
+@keyframes halo{50%{opacity:.95;filter:url(#glow)}}
+
+.flame{transform-origin:left center;animation:flame .10s ease-in-out infinite alternate}
+@keyframes flame{from{transform:scaleX(.65) scaleY(.8)}to{transform:scaleX(1.35) scaleY(1.2)}}
+
+.launch .flame{animation-duration:.045s}
+.launch .flameCore{animation:core .05s infinite alternate}
+@keyframes core{to{transform:scaleX(1.5)}}
+
+.speed{animation:speed .75s linear infinite}
+@keyframes speed{
+  0%{transform:translateX(160px);opacity:0}
+  15%{opacity:.8}
+  100%{transform:translateX(-650px);opacity:0}
+}
+
+.launch .speed{animation-duration:.28s}
+
+.spark{animation:spark var(--d) linear infinite;animation-delay:var(--delay)}
+@keyframes spark{
+  0%{transform:translate(0,0) scale(1);opacity:1}
+  100%{transform:translate(var(--x),var(--y)) scale(.05);opacity:0}
+}
+.launch .spark{animation-duration:.35s}
+
+.reflection{animation:reflection 2s ease-in-out infinite}
+@keyframes reflection{50%{opacity:.28}}
+.launch .reflection{animation:reflectionLaunch 1.5s ease-out forwards}
+@keyframes reflectionLaunch{
+  0%{transform:translateY(0) scaleX(1)}
+  50%{transform:translateY(3px) scaleX(1.12)}
+  100%{transform:translateY(0) scaleX(1)}
+}
+
+.beam{animation:beam 2.5s ease-in-out infinite}
+@keyframes beam{0%,100%{opacity:.05}50%{opacity:.35}}
+
+.drs{transform-box:fill-box;transform-origin:bottom;animation:drsIdle 4s ease-in-out infinite}
+@keyframes drsIdle{0%,70%,100%{transform:rotate(0)}75%,88%{transform:rotate(-5deg)}}
+.launch .drs{animation:drsOpen 1.5s ease-in-out forwards}
+@keyframes drsOpen{0%,30%{transform:rotate(0)}50%,75%{transform:rotate(-10deg)}100%{transform:rotate(0)}}
+
+.scan{animation:scan 2.5s linear infinite}
+@keyframes scan{0%{transform:translateX(-900px);opacity:0}20%{opacity:.7}80%{opacity:.7}100%{transform:translateX(900px);opacity:0}}
+
+.hud{
+  position:absolute;right:4%;top:50%;transform:translateY(-50%);
+  z-index:25;font-size:9px;letter-spacing:2px;color:#666a72;opacity:.7
+}
+.hud b{font-size:18px;color:#df1744}
+.hud .line{height:2px;width:90px;margin:7px 0;background:linear-gradient(90deg,#df1744,transparent)}
+.hud .status{color:#df1744}
+.hud .rpm{margin-top:15px}
+@media(max-width:700px){.hud{display:none}.title h1{font-size:32px}.title p{font-size:10px;letter-spacing:5px}.carwrap{width:100vw}}
+
+.launchOverlay{
+  position:absolute;inset:0;z-index:30;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.5),transparent 28%);
+}
+.launch .launchOverlay{animation:flash 1.5s ease-out}
+@keyframes flash{
+  0%,55%{opacity:0}62%{opacity:.8}100%{opacity:0}
+}
+
+.caption{position:relative;z-index:20;margin-top:0;font-size:9px;letter-spacing:3px;color:#858890}
+</style>
+</head>
+
+<body>
+<div class="stage" id="stage">
+
+<div class="title">
+  <h1>FORMULA 1</h1>
+  <p>RACING CAR</p>
+</div>
+
+<div class="hud">
+  <div>SYSTEM <span class="status">ONLINE</span></div>
+  <div class="line"></div>
+  <div>ENGINE</div><b id="rpm">7800</b><div>RPM</div>
+  <div class="rpm">MAX SPEED</div><b>360</b><div>KM/H</div>
+</div>
+
+<div class="carwrap">
+<svg viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid meet">
+<defs>
+  <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#ff4168"/><stop offset=".5" stop-color="#f31345"/><stop offset="1" stop-color="#a9002e"/>
+  </linearGradient>
+  <linearGradient id="yellow" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#ffe82e"/><stop offset="1" stop-color="#f0b90d"/>
+  </linearGradient>
+  <linearGradient id="flame" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#fff"/><stop offset=".2" stop-color="#fff18a"/>
+    <stop offset=".55" stop-color="#ff7a00"/><stop offset="1" stop-color="#ff1744" stop-opacity="0"/>
+  </linearGradient>
+  <radialGradient id="wheel">
+    <stop offset="0" stop-color="#73767b"/><stop offset=".45" stop-color="#26272b"/><stop offset="1" stop-color="#050506"/>
+  </radialGradient>
+  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="white" stop-opacity=".4"/><stop offset="1" stop-color="white" stop-opacity="0"/>
+  </linearGradient>
+  <mask id="mask"><rect x="0" y="0" width="1200" height="230" fill="url(#fade)"/></mask>
+  <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+    <feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="bigGlow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="18"/></filter>
+</defs>
+
+<!-- futuristic scanning line -->
+<g class="scan" opacity=".35">
+  <line x1="100" y1="250" x2="1100" y2="250" stroke="#ff1748" stroke-width="2"/>
+  <line x1="100" y1="253" x2="1100" y2="253" stroke="#ffe22b" stroke-width="1"/>
+</g>
+
+<!-- speed streaks -->
+<g stroke="#ff1748" stroke-linecap="round" opacity=".5">
+  <line class="speed" x1="1050" y1="210" x2="1180" y2="210" stroke-width="3"/>
+  <line class="speed" style="animation-delay:.15s" x1="1030" y1="250" x2="1160" y2="250" stroke-width="2"/>
+  <line class="speed" style="animation-delay:.3s" x1="1050" y1="290" x2="1190" y2="290" stroke-width="4"/>
+  <line class="speed" style="animation-delay:.45s" x1="1030" y1="330" x2="1170" y2="330" stroke-width="2"/>
+</g>
+
+<!-- floor -->
+<ellipse cx="600" cy="452" rx="480" ry="16" fill="#8d9198" opacity=".25" filter="url(#bigGlow)"/>
+<ellipse cx="600" cy="447" rx="450" ry="8" fill="#b5b8be" opacity=".5"/>
+
+<!-- reflection -->
+<g class="reflection" transform="translate(0 900) scale(1 -1)" mask="url(#mask)" opacity=".22">
+  <path d="M60 385 C170 350 300 345 450 315 L450 355 C300 375 170 395 60 410Z" fill="#b7bac0"/>
+  <path d="M430 315 C500 285 620 280 720 300 C800 315 870 345 900 370L900 405L430 360Z" fill="#c1c4c9"/>
+  <circle cx="270" cy="390" r="60" fill="#aaaeb5"/>
+  <circle cx="850" cy="390" r="60" fill="#aaaeb5"/>
+</g>
+
+<g class="car">
+
+<!-- underglow -->
+<path d="M180 420 L920 420 L880 440 L210 440Z" fill="#ff1748" opacity=".45" filter="url(#bigGlow)"/>
+
+<!-- floor/diffuser -->
+<path d="M180 418 L930 418 L960 410 L945 433 L165 433Z" fill="#0d0e11"/>
+<path d="M890 416 L970 418 L948 377 L905 392Z" fill="#15161a"/>
+
+<!-- rear wing -->
+<path class="drs" d="M875 285 L1025 260 L1025 277 L890 305Z" fill="#ff2352" filter="url(#glow)"/>
+<path d="M890 290 L1015 270 L1015 282 L895 307Z" fill="#c50031"/>
+<path d="M895 293 L1000 277 L988 293 L905 307Z" fill="url(#yellow)"/>
+<path d="M915 300 L920 410 L932 410 L930 298Z" fill="#111216"/>
+
+<!-- engine cover -->
+<path d="M720 335 C750 302 790 282 830 289 C865 295 890 318 900 350 L902 375 L835 385 L765 375Z" fill="url(#red)"/>
+<path d="M750 326 C780 298 820 292 855 304" fill="none" stroke="#ff8ba3" stroke-width="7" opacity=".5"/>
+
+<!-- sidepod -->
+<path d="M565 325 C625 298 700 290 755 304 C800 316 820 340 810 368 C800 398 745 408 675 407 C615 406 575 388 565 360Z" fill="url(#red)"/>
+<path d="M585 370 C610 360 640 360 665 367 C645 380 610 382 585 377Z" fill="#121316"/>
+
+<!-- yellow livery -->
+<path d="M445 300 L550 288 L805 355 L760 385 L520 330Z" fill="url(#yellow)"/>
+<path d="M690 330 L710 326 L760 380 L738 386Z" fill="#ffdf20"/>
+<path d="M725 340 L745 336 L790 371 L770 380Z" fill="#ffdf20"/>
+<text x="555" y="325" font-size="29" font-weight="800" font-style="italic" fill="#090a0d" transform="rotate(8 555 325)">SPEED</text>
+
+<!-- cockpit -->
+<path d="M405 330 C430 298 470 280 520 280L565 280C595 280 615 300 615 330L615 365L405 365Z" fill="#ed1745"/>
+<path d="M445 325 C465 302 495 292 525 292C555 292 580 305 590 330L590 344L445 344Z" fill="#0c0d10"/>
+<path class="halo" d="M438 325 Q455 270 520 266 Q585 270 605 325" fill="none" stroke="#0b0c0f" stroke-width="10" stroke-linecap="round"/>
+<path class="halo" d="M520 267L510 325" stroke="#0b0c0f" stroke-width="8" stroke-linecap="round"/>
+
+<!-- nose -->
+<path d="M55 390 C135 350 280 340 420 315L455 300L455 355C300 372 170 390 65 405Z" fill="#ff3158"/>
+<path d="M80 385 C190 355 300 350 430 325" fill="none" stroke="#ffdc23" stroke-width="7" stroke-linecap="round"/>
+<path d="M95 370 C200 345 315 335 410 315" fill="none" stroke="#ff8198" stroke-width="5" opacity=".6"/>
+
+<!-- front wing -->
+<path d="M20 415 L190 410 L210 420 L35 430Z" fill="#111216"/>
+<path d="M40 403 L190 400 L205 408 L40 416Z" fill="#ed1646"/>
+<path d="M65 392 L190 390 L205 397 L65 405Z" fill="#ffdc22"/>
+<path d="M190 360 L215 358 L215 425 L190 425Z" fill="#ed1646"/>
+<rect x="198" y="368" width="5" height="48" fill="#ffdb22"/>
+
+<!-- suspension -->
+<g stroke="#15161a" stroke-width="4" stroke-linecap="round">
+  <line x1="265" y1="350" x2="330" y2="365"/>
+  <line x1="265" y1="382" x2="330" y2="390"/>
+  <line x1="850" y1="350" x2="785" y2="330"/>
+  <line x1="850" y1="390" x2="780" y2="375"/>
+</g>
+
+<!-- front wheel -->
+<g transform="translate(270 382)">
+  <circle r="66" fill="none" stroke="#ff1748" stroke-width="8" opacity=".3" filter="url(#glow)"/>
+  <g class="wheel">
+    <circle r="58" fill="url(#wheel)"/>
+    <circle r="52" fill="none" stroke="#08090b" stroke-width="5"/>
+    <circle r="46" fill="none" stroke="#777" stroke-width="2"/>
+    <circle r="30" fill="#f4f4f5"/>
+    <circle r="25" fill="#d0d1d3"/>
+    <g stroke="#242529" stroke-width="4" stroke-linecap="round">
+      <line x1="0" y1="0" x2="0" y2="-24"/><line x1="0" y1="0" x2="23" y2="7"/>
+      <line x1="0" y1="0" x2="14" y2="20"/><line x1="0" y1="0" x2="-14" y2="20"/>
+      <line x1="0" y1="0" x2="-23" y2="7"/>
+    </g>
+    <circle r="8" fill="#e81745"/><circle r="3" fill="#111"/>
+  </g>
+</g>
+
+<!-- rear wheel -->
+<g transform="translate(850 382)">
+  <circle r="69" fill="none" stroke="#ff1748" stroke-width="9" opacity=".3" filter="url(#glow)"/>
+  <g class="wheel">
+    <circle r="61" fill="url(#wheel)"/>
+    <circle r="55" fill="none" stroke="#08090b" stroke-width="5"/>
+    <circle r="48" fill="none" stroke="#777" stroke-width="2"/>
+    <circle r="31" fill="#f4f4f5"/>
+    <circle r="26" fill="#d0d1d3"/>
+    <g stroke="#242529" stroke-width="4" stroke-linecap="round">
+      <line x1="0" y1="0" x2="0" y2="-25"/><line x1="0" y1="0" x2="24" y2="8"/>
+      <line x1="0" y1="0" x2="15" y2="21"/><line x1="0" y1="0" x2="-15" y2="21"/>
+      <line x1="0" y1="0" x2="-24" y2="8"/>
+    </g>
+    <circle r="8" fill="#e81745"/><circle r="3" fill="#111"/>
+  </g>
+</g>
+
+<!-- exhaust -->
+<g transform="translate(900 345)">
+  <ellipse cx="0" cy="0" rx="24" ry="10" fill="#ff1748" opacity=".55" filter="url(#bigGlow)"/>
+  <path class="flame" d="M0 -14 C30 -19 65 -10 105 0 C65 10 30 19 0 14Z" fill="url(#flame)" filter="url(#glow)"/>
+  <path class="flameCore" d="M0 -6 C22 -10 48 -5 74 0 C48 5 22 10 0 6Z" fill="#fff6a5"/>
+</g>
+
+<!-- headlights -->
+<circle cx="82" cy="382" r="9" fill="#ffe72d" opacity=".3" filter="url(#glow)"/>
+<circle cx="82" cy="382" r="3" fill="#fff"/>
+
+<!-- sparks -->
+<g fill="#ffe33b" filter="url(#glow)">
+  <circle class="spark" style="--x:-90px;--y:30px;--d:.5s;--delay:0s" cx="920" cy="420" r="3"/>
+  <circle class="spark" style="--x:-130px;--y:-25px;--d:.7s;--delay:.15s" cx="915" cy="418" r="2"/>
+  <circle class="spark" style="--x:-70px;--y:55px;--d:.45s;--delay:.3s" cx="925" cy="420" r="2"/>
+  <circle class="spark" style="--x:-160px;--y:5px;--d:.8s;--delay:.1s" cx="920" cy="416" r="1.8"/>
+</g>
+
+</g>
+</svg>
+</div>
+
+<div class="caption">SIDE PROFILE · CINEMATIC LAUNCH SYSTEM</div>
+<div class="launchOverlay"></div>
+</div>
+
+<script>
+const stage = document.getElementById("stage");
+const rpm = document.getElementById("rpm");
+
+let running = false;
+
+function launch(){
+    if(running) return;
+    running = true;
+
+    stage.classList.add("launch");
+
+    let start = performance.now();
+    const duration = 1500;
+
+    function update(now){
+        let p = Math.min((now-start)/duration,1);
+
+        // aggressive RPM ramp
+        let value = Math.round(
+            7800 +
+            Math.sin(p*Math.PI)*5200
+        );
+
+        rpm.textContent = value;
+
+        if(p < 1){
+            requestAnimationFrame(update);
+        }else{
+            rpm.textContent = "7800";
+
+            setTimeout(()=>{
+                stage.classList.remove("launch");
+                running = false;
+            },500);
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+// first launch
+setTimeout(launch,1200);
+
+// repeat every 6 seconds
+setInterval(launch,6000);
+
+// click anywhere to launch
+document.addEventListener("click",launch);
+
+// keyboard: SPACE
+document.addEventListener("keydown",e=>{
+    if(e.code==="Space"){
+        e.preventDefault();
+        launch();
+    }
+});
+</script>
+
+</body>
+</html>
