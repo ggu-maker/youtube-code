@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>The Watcher</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #f8f8f8;
+}
+
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.ui {
+    position: fixed;
+    top: 28px;
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.ui h1 {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: 5px;
+}
+
+.ui p {
+    margin: 8px 0;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: #777;
+}
+
+.info {
+    position: fixed;
+    bottom: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+
+    background: rgba(0,0,0,.9);
+    color: white;
+
+    padding: 12px 22px;
+    border-radius: 20px;
+
+    font-family: Arial;
+    font-size: 13px;
+
+    z-index: 5;
+    white-space: nowrap;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="ui">
+    <h1>THE WATCHER</h1>
+    <p>A LIVING INK CREATURE</p>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div class="info">
+    Move your mouse • Click to disturb it • R to reset
+</div>
+
+<script>
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let W, H;
+let centerX, centerY;
+
+let mouseX = 0;
+let mouseY = 0;
+
+let disturbance = 0;
+
+let hairs = [];
+let dust = [];
+let drips = [];
+
+let seed = Math.random() * 10000;
+
+
+/* =========================
+   RESIZE
+========================= */
+
+function resize() {
+
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+
+    centerX = W / 2;
+    centerY = H / 2 + 25;
+
+    createCreature();
+}
+
+window.addEventListener("resize", resize);
+
+
+/* =========================
+   CREATURE SETUP
+========================= */
+
+function createCreature() {
+
+    hairs = [];
+    dust = [];
+    drips = [];
+
+    const size = Math.min(W,H);
+
+    /*
+       OUTER HAIRS
+    */
+
+    for(let i=0;i<900;i++){
+
+        let angle =
+            Math.random() * Math.PI * 2;
+
+        /*
+           Mostly circular creature
+           with slight irregularity
+        */
+
+        let radius =
+            size * (
+                0.225 +
+                Math.random() * 0.055
+            );
+
+        let length =
+            size * (
+                0.025 +
+                Math.random() * 0.12
+            );
+
+        hairs.push({
+
+            angle: angle,
+
+            radius: radius,
+
+            length: length,
+
+            width:
+                Math.random() * 1.4 + .2,
+
+            phase:
+                Math.random()*Math.PI*2,
+
+            speed:
+                .005 + Math.random()*.02
+
+        });
+    }
+
+
+    /*
+       FINE INK DUST AROUND BODY
+    */
+
+    for(let i=0;i<1800;i++){
+
+        let a =
+            Math.random()*Math.PI*2;
+
+        let r =
+            size * (
+                .17 +
+                Math.random()*.13
+            );
+
+        dust.push({
+
+            x: Math.cos(a)*r,
+
+            y:
+                Math.sin(a)*r*.83,
+
+            size:
+                Math.random()*2.5+.2,
+
+            alpha:
+                .08 +
+                Math.random()*.45,
+
+            phase:
+                Math.random()*Math.PI*2
+
+        });
+
+    }
+
+
+    /*
+       BOTTOM DRIPS
+    */
+
+    for(let i=0;i<18;i++){
+
+        drips.push({
+
+            x:
+                -size*.13 +
+                Math.random()*size*.26,
+
+            length:
+                size*(.05+Math.random()*.13),
+
+            width:
+                size*(.012+Math.random()*.025),
+
+            phase:
+                Math.random()*Math.PI*2
+
+        });
+
+    }
+}
+
+
+/* =========================
+   MOUSE
+========================= */
+
+window.addEventListener("mousemove", e => {
+
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+});
+
+
+/* =========================
+   CLICK
+========================= */
+
+window.addEventListener("click", () => {
+
+    disturbance = 1;
+
+});
+
+
+/* =========================
+   RESET
+========================= */
+
+window.addEventListener("keydown", e => {
+
+    if(e.key.toLowerCase() === "r"){
+
+        disturbance = 0;
+
+        seed = Math.random()*10000;
+
+        createCreature();
+
+    }
+
+});
+
+
+/* =========================
+   DRAW MAIN BLACK BODY
+========================= */
+
+function drawBody(time){
+
+    const size = Math.min(W,H);
+
+    /*
+       Main body dimensions
+    */
+
+    let radiusX = size*.245;
+    let radiusY = size*.215;
+
+
+    /*
+       Soft outer ink glow
+    */
+
+    for(let r=1;r<=10;r++){
+
+        ctx.beginPath();
+
+        ctx.ellipse(
+            centerX,
+            centerY,
+            radiusX + r*7,
+            radiusY + r*7,
+            0,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle =
+            `rgba(0,0,0,${.012-r*.0007})`;
+
+        ctx.fill();
+
+    }
+
+
+    /*
+       MAIN BLACK MASS
+    */
+
+    ctx.beginPath();
+
+    let points = 220;
+
+    for(let i=0;i<=points;i++){
+
+        let a =
+            i/points*Math.PI*2;
+
+        /*
+           Organic irregular edge
+        */
+
+        let noise =
+            Math.sin(a*7 + seed)*8 +
+            Math.sin(a*13 + seed*.7)*5 +
+            Math.sin(a*29 + seed*.2)*3;
+
+        let breathe =
+            Math.sin(time*.0015)*3;
+
+        let x =
+            centerX +
+            Math.cos(a) *
+            (radiusX + noise + breathe);
+
+        let y =
+            centerY +
+            Math.sin(a) *
+            (radiusY + noise*.65 + breathe);
+
+        if(i===0)
+            ctx.moveTo(x,y);
+        else
+            ctx.lineTo(x,y);
+    }
+
+    ctx.closePath();
+
+    ctx.fillStyle = "#050505";
+
+    ctx.fill();
+
+
+    /*
+       DENSE BLACK TEXTURE
+    */
+
+    for(let i=0;i<4200;i++){
+
+        let a =
+            Math.random()*Math.PI*2;
+
+        let r =
+            Math.sqrt(Math.random());
+
+        let x =
+            Math.cos(a) *
+            radiusX *
+            r;
+
+        let y =
+            Math.sin(a) *
+            radiusY *
+            r;
+
+        /*
+           Make most texture extremely dark
+        */
+
+        let alpha =
+            .12 +
+            Math.random()*.35;
+
+        let s =
+            Math.random()*2.2+.3;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            centerX+x,
+            centerY+y,
+            s,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle =
+            `rgba(0,0,0,${alpha})`;
+
+        ctx.fill();
+
+    }
+
+}
+
+
+/* =========================
+   OUTER FUZZ
+========================= */
+
+function drawHairs(time){
+
+    const size = Math.min(W,H);
+
+    for(let h of hairs){
+
+        let movement =
+            Math.sin(
+                time*h.speed+
+                h.phase
+            ) * 5;
+
+        let r =
+            h.radius + movement;
+
+        /*
+           Mouse pushes outer hairs
+        */
+
+        let dx =
+            centerX -
+            mouseX;
+
+        let dy =
+            centerY -
+            mouseY;
+
+        let mouseDistance =
+            Math.sqrt(dx*dx+dy*dy);
+
+        let extra = 0;
+
+        if(mouseDistance < size*.45){
+
+            extra =
+                (1 -
+                mouseDistance/(size*.45))
+                * 35;
+
+        }
+
+        let startX =
+            centerX +
+            Math.cos(h.angle)*r;
+
+        let startY =
+            centerY +
+            Math.sin(h.angle)*r*.85;
+
+        let endR =
+            r +
+            h.length +
+            extra;
+
+        let endX =
+            centerX +
+            Math.cos(h.angle)*endR;
+
+        let endY =
+            centerY +
+            Math.sin(h.angle)*endR*.85;
+
+
+        ctx.beginPath();
+
+        ctx.moveTo(startX,startY);
+
+        /*
+           Slight curved hair
+        */
+
+        let midX =
+            (startX+endX)/2 +
+            Math.sin(time*.002+h.phase)*3;
+
+        let midY =
+            (startY+endY)/2 +
+            Math.cos(time*.002+h.phase)*3;
+
+        ctx.quadraticCurveTo(
+            midX,
+            midY,
+            endX,
+            endY
+        );
+
+        ctx.strokeStyle =
+            `rgba(0,0,0,${
+                .2+Math.random()*.5
+            })`;
+
+        ctx.lineWidth =
+            h.width;
+
+        ctx.stroke();
+
+    }
+
+}
+
+
+/* =========================
+   SMOKY EDGE PARTICLES
+========================= */
+
+function drawDust(time){
+
+    for(let p of dust){
+
+        let wave =
+            Math.sin(
+                time*.001+
+                p.phase
+            )*5;
+
+        let x =
+            p.x + wave;
+
+        let y =
+            p.y +
+            Math.cos(
+                time*.001+
+                p.phase
+            )*4;
+
+        /*
+           Mouse disturbance
+        */
+
+        let mx =
+            mouseX-centerX;
+
+        let my =
+            mouseY-centerY;
+
+        let dx = x-mx;
+        let dy = y-my;
+
+        let d =
+            Math.sqrt(dx*dx+dy*dy);
+
+        if(d<150){
+
+            let force =
+                (1-d/150)*20;
+
+            x += dx/d*force;
+
+            y += dy/d*force;
+
+        }
+
+        ctx.beginPath();
+
+        ctx.arc(
+            centerX+x,
+            centerY+y,
+            p.size,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle =
+            `rgba(0,0,0,${p.alpha*.35})`;
+
+        ctx.fill();
+
+    }
+
+}
+
+
+/* =========================
+   BOTTOM DRIPS
+========================= */
+
+function drawDrips(time){
+
+    const size = Math.min(W,H);
+
+    for(let d of drips){
+
+        let x =
+            centerX+d.x;
+
+        let y =
+            centerY+
+            size*.18;
+
+        let wave =
+            Math.sin(
+                time*.002+
+                d.phase
+            )*10;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            x-d.width,
+            y
+        );
+
+        ctx.bezierCurveTo(
+
+            x-d.width*1.3,
+            y+d.length*.3,
+
+            x+d.width,
+            y+d.length*.65,
+
+            x+wave,
+            y+d.length
+
+        );
+
+        ctx.bezierCurveTo(
+
+            x+wave+d.width,
+            y+d.length*.65,
+
+            x+d.width*1.2,
+            y+d.length*.3,
+
+            x+d.width,
+            y
+
+        );
+
+        ctx.closePath();
+
+        ctx.fillStyle =
+            "#050505";
+
+        ctx.fill();
+
+    }
+
+}
+
+
+/* =========================
+   EYE
+========================= */
+
+function drawEye(time){
+
+    const size = Math.min(W,H);
+
+    /*
+       Eye position
+    */
+
+    let eyeX = centerX;
+    let eyeY = centerY - 5;
+
+    /*
+       Eye follows mouse subtly
+    */
+
+    let lookX =
+        (mouseX-centerX) * .025;
+
+    let lookY =
+        (mouseY-centerY) * .025;
+
+    /*
+       Blink
+    */
+
+    let blink =
+        1 -
+        Math.max(
+            0,
+            Math.sin(time*.00035)
+        )*.0;
+
+
+    ctx.save();
+
+    ctx.translate(
+        eyeX+lookX,
+        eyeY+lookY
+    );
+
+    /*
+       ALMOND EYE
+    */
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        -size*.055,
+        0
+    );
+
+    ctx.bezierCurveTo(
+
+        -size*.035,
+        -size*.035,
+
+        size*.025,
+        -size*.035,
+
+        size*.055,
+        0
+
+    );
+
+    ctx.bezierCurveTo(
+
+        size*.025,
+        size*.035,
+
+        -size*.035,
+        size*.035,
+
+        -size*.055,
+        0
+
+    );
+
+    ctx.closePath();
+
+    ctx.fillStyle =
+        "#f2f2f2";
+
+    ctx.fill();
+
+
+    /*
+       DARK EYE OUTLINE
+    */
+
+    ctx.strokeStyle =
+        "#111";
+
+    ctx.lineWidth = 2;
+
+    ctx.stroke();
+
+
+    /*
+       IRIS
+    */
+
+    ctx.beginPath();
+
+    ctx.ellipse(
+        lookX*.2,
+        lookY*.2,
+        size*.027,
+        size*.032,
+        0,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle =
+        "#030303";
+
+    ctx.fill();
+
+
+    /*
+       PUPIL
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        lookX*.2,
+        lookY*.2,
+        size*.014,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle =
+        "#000";
+
+    ctx.fill();
+
+
+    /*
+       tiny reflection
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        -size*.006,
+        -size*.009,
+        size*.004,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle =
+        "white";
+
+    ctx.fill();
+
+    ctx.restore();
+
+}
+
+
+/* =========================
+   ANIMATION
+========================= */
+
+function animate(time){
+
+    /*
+       BACKGROUND
+    */
+
+    ctx.fillStyle =
+        "#f8f8f8";
+
+    ctx.fillRect(
+        0,
+        0,
+        W,
+        H
+    );
+
+
+    /*
+       Outer hair first
+    */
+
+    drawHairs(time);
+
+
+    /*
+       Smoky dust
+    */
+
+    drawDust(time);
+
+
+    /*
+       Main black creature
+    */
+
+    drawBody(time);
+
+
+    /*
+       Bottom hanging ink
+    */
+
+    drawDrips(time);
+
+
+    /*
+       Eye on top
+    */
+
+    drawEye(time);
+
+
+    /*
+       Slowly calm after click
+    */
+
+    disturbance *= .95;
+
+
+    requestAnimationFrame(animate);
+}
+
+
+/* START */
+
+resize();
+
+requestAnimationFrame(animate);
+
+</script>
+
+</body>
+</html>
