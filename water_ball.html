@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>3D Water Ball</title>
+<style>
+  :root{
+    --bg1:#04111f; --bg2:#0a2a44; --water:#33c9ff; --water2:#0a6fb0;
+  }
+  html,body{
+    height:100%; margin:0; overflow:hidden;
+    background: radial-gradient(circle at 50% 40%, var(--bg2), var(--bg1));
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #info{
+    position:fixed; top:calc(14px + env(safe-area-inset-top,0px)); left:0; right:0;
+    text-align:center; color:#bfe9ff; font-size:13px; letter-spacing:.5px;
+    opacity:.7; pointer-events:none; user-select:none;
+  }
+  #hint{
+    position:fixed; bottom:calc(16px + env(safe-area-inset-bottom,0px)); left:0; right:0;
+    text-align:center; color:#7fd0ff; font-size:12px; opacity:.55; pointer-events:none; user-select:none;
+  }
+  canvas{ display:block; touch-action:none; }
+</style>
+</head>
+<body>
+<div id="info">poke it • click for ripples • double‑click to burst</div>
+<div id="hint">drag to rotate · scroll / pinch to zoom</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  const MAX_RIPPLES = 8;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0, 6);
+
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0x224466, 1.2));
+  const key = new THREE.PointLight(0x66ccff, 2.2, 20);
+  key.position.set(4, 5, 5);
+  scene.add(key);
+  const rim = new THREE.PointLight(0x0077cc, 1.5, 20);
+  rim.position.set(-5, -3, -4);
+  scene.add(rim);
+
+  const geometry = new THREE.SphereGeometry(1.6, 160, 160);
+  // plain (undisplaced) proxy sphere used only for pointer raycasting
+  const rayProxy = new THREE.Mesh(new THREE.SphereGeometry(1.6, 24, 24), new THREE.MeshBasicMaterial({visible:false}));
+
+  const rippleOrigin = [];
+  const rippleStart = [];
+  for(let i=0;i<MAX_RIPPLES;i++){ rippleOrigin.push(new THREE.Vector3(0,0,0)); rippleStart.push(-999); }
+
+  const uniforms = {
+    uTime:        { value: 0 },
+    uColorA:      { value: new THREE.Color(0x0a6fb0) },
+    uColorB:      { value: new THREE.Color(0x8be9ff) },
+    uHue:         { value: 0 },
+    uPointer:     { value: new THREE.Vector3(0,0,0) },
+    uPointerAmt:  { value: 0 },
+    uRippleOrigin:{ value: rippleOrigin },
+    uRippleStart: { value: rippleStart },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vPos;
+      varying float vDisp;
+      uniform float uTime;
+      uniform vec3 uPointer;
+      uniform float uPointerAmt;
+      uniform vec3 uRippleOrigin[${MAX_RIPPLES}];
+      uniform float uRippleStart[${MAX_RIPPLES}];
+
+      float noise(vec3 p){
+        return sin(p.x*1.7+uTime) * sin(p.y*1.9+uTime*1.1) * sin(p.z*2.1+uTime*0.9);
+      }
+
+      void main(){
+        vNormal = normalize(normalMatrix * normal);
+        vec3 pos = position;
+
+        // ambient water wobble
+        float n1 = noise(pos*1.4);
+        float n2 = noise(pos*2.6 + 10.0);
+        float disp = (n1*0.10 + n2*0.045);
+
+        // pointer poke - bulges outward near cursor, sinks a little at contact ring
+        float dPointer = distance(pos, uPointer);
+        float poke = exp(-dPointer*dPointer*6.0) * uPointerAmt;
+        disp += poke * 0.28;
+
+        // traveling ripple rings from clicks
+        for(int i=0;i<${MAX_RIPPLES};i++){
+          float age = uTime - uRippleStart[i];
+          if(age > 0.0 && age < 2.2){
+            float d = distance(pos, uRippleOrigin[i]);
+            float ring = exp(-9.0*pow(d - age*2.2, 2.0)) * exp(-age*1.4);
+            disp += ring * 0.22;
+          }
+        }
+
+        vDisp = disp;
+        pos += normal * disp;
+        vPos = pos;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      varying vec3 vPos;
+      varying float vDisp;
+      uniform vec3 uColorA;
+      uniform vec3 uColorB;
+      uniform float uTime;
+      uniform float uHue;
+
+      vec3 hueShift(vec3 c, float h){
+        const vec3 k = vec3(0.57735);
+        float cosA = cos(h);
+        return c*cosA + cross(k,c)*sin(h) + k*dot(k,c)*(1.0-cosA);
+      }
+
+      void main(){
+        vec3 viewDir = normalize(cameraPosition - vPos);
+        float fresnel = pow(1.0 - max(dot(viewDir, vNormal), 0.0), 2.5);
+
+        float wave = sin(vPos.y*4.0 + uTime*2.0) * 0.5 + 0.5;
+        vec3 base = mix(uColorA, uColorB, wave*0.6 + fresnel*0.4);
+        base = hueShift(base, uHue);
+
+        vec3 color = base + fresnel * vec3(0.5, 0.8, 1.0) * 0.6;
+        color += vDisp * vec3(0.8, 1.0, 1.2) * 1.2; // bright caustic highlight where displaced
+
+        float alpha = 0.75 + fresnel*0.25;
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+    transparent: true,
+    side: THREE.DoubleSide,
+  });
+
+  const waterBall = new THREE.Mesh(geometry, material);
+  scene.add(waterBall);
+  scene.add(rayProxy); // invisible, follows same transform for raycasting
+
+  const glowGeo = new THREE.SphereGeometry(1.75, 64, 64);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x33c9ff, transparent: true, opacity: 0.07, side: THREE.BackSide
+  });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  scene.add(glow);
+
+  // ---------- interaction ----------
+  let isDragging = false, moved = 0, prevX = 0, prevY = 0, downTime = 0;
+  let rotX = 0.3, rotY = 0.4, targetRotX = 0.3, targetRotY = 0.4;
+  let velX = 0, velY = 0;
+  let rippleIdx = 0;
+  let hueTarget = 0;
+
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2(9,9); // off-screen initially
+  let pointerAmtTarget = 0;
+
+  function setNdc(x,y){
+    ndc.x = (x/window.innerWidth)*2 - 1;
+    ndc.y = -(y/window.innerHeight)*2 + 1;
+  }
+
+  function spawnRipple(localPoint){
+    rippleOrigin[rippleIdx].copy(localPoint);
+    rippleStart[rippleIdx] = clock.getElapsedTime();
+    rippleIdx = (rippleIdx + 1) % MAX_RIPPLES;
+  }
+
+  function onDown(x,y){
+    isDragging = true; moved = 0; prevX = x; prevY = y; downTime = performance.now();
+    velX = 0; velY = 0;
+    setNdc(x,y);
+  }
+  function onMove(x,y){
+    setNdc(x,y);
+    if(!isDragging) return;
+    const dx = x - prevX, dy = y - prevY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    velY = dx * 0.005; velX = dy * 0.005;
+    targetRotY += velY;
+    targetRotX += velX;
+    targetRotX = Math.max(-1.3, Math.min(1.3, targetRotX));
+    prevX = x; prevY = y;
+  }
+  function onUp(x,y){
+    isDragging = false;
+    const dt = performance.now() - downTime;
+    if(moved < 8 && dt < 350){
+      // treat as a click/tap -> ripple at the surface point under the cursor
+      raycaster.setFromCamera(ndc, camera);
+      const hit = raycaster.intersectObject(rayProxy)[0];
+      if(hit){
+        const local = waterBall.worldToLocal(hit.point.clone());
+        spawnRipple(local);
+      }
+    }
+  }
+  function onDoubleClick(x,y){
+    setNdc(x,y);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(rayProxy)[0];
+    if(hit){
+      const local = waterBall.worldToLocal(hit.point.clone());
+      for(let i=0;i<5;i++){
+        const jitter = local.clone().add(new THREE.Vector3(
+          (Math.random()-0.5)*0.6, (Math.random()-0.5)*0.6, (Math.random()-0.5)*0.6
+        )).normalize().multiplyScalar(1.6);
+        setTimeout(()=>spawnRipple(jitter), i*70);
+      }
+    }
+    hueTarget += Math.PI * 0.6;
+  }
+
+  const dom = renderer.domElement;
+  dom.addEventListener('mousedown', e => onDown(e.clientX, e.clientY));
+  window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+  window.addEventListener('mouseup', e => onUp(e.clientX, e.clientY));
+  dom.addEventListener('dblclick', e => onDoubleClick(e.clientX, e.clientY));
+  dom.addEventListener('mouseleave', () => { pointerAmtTarget = 0; });
+
+  let lastTapTime = 0, pinchDist = null;
+  dom.addEventListener('touchstart', e => {
+    if(e.touches.length === 1){
+      const t = e.touches[0]; onDown(t.clientX, t.clientY);
+      const now = performance.now();
+      if(now - lastTapTime < 300){ onDoubleClick(t.clientX, t.clientY); }
+      lastTapTime = now;
+    } else if(e.touches.length === 2){
+      pinchDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    }
+  }, {passive:true});
+  dom.addEventListener('touchmove', e => {
+    if(e.touches.length === 1){
+      const t = e.touches[0]; onMove(t.clientX, t.clientY);
+    } else if(e.touches.length === 2 && pinchDist !== null){
+      const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+      camera.position.z += (pinchDist - d) * 0.01;
+      camera.position.z = Math.max(3, Math.min(12, camera.position.z));
+      pinchDist = d;
+    }
+  }, {passive:true});
+  dom.addEventListener('touchend', e => {
+    const t = e.changedTouches[0];
+    if(t) onUp(t.clientX, t.clientY);
+    pinchDist = null;
+  });
+
+  dom.addEventListener('wheel', e => {
+    camera.position.z += e.deltaY * 0.003;
+    camera.position.z = Math.max(3, Math.min(12, camera.position.z));
+  }, {passive:true});
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  const clock = new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    uniforms.uTime.value = t;
+
+    // inertia when not dragging
+    if(!isDragging){
+      targetRotY += velY;
+      targetRotX += velX;
+      velX *= 0.94; velY *= 0.94;
+    }
+    rotX += (targetRotX - rotX) * 0.1;
+    rotY += (targetRotY - rotY) * 0.1;
+    waterBall.rotation.x = rotX; waterBall.rotation.y = rotY + t*0.04;
+    rayProxy.rotation.copy(waterBall.rotation);
+    glow.rotation.copy(waterBall.rotation);
+
+    waterBall.position.y = Math.sin(t*0.8)*0.08;
+    rayProxy.position.copy(waterBall.position);
+    glow.position.copy(waterBall.position);
+
+    // pointer proximity bulge: raycast every frame, fade amount based on hit/no-hit
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(rayProxy)[0];
+    if(hit){
+      const local = waterBall.worldToLocal(hit.point.clone());
+      uniforms.uPointer.value.copy(local);
+      pointerAmtTarget = 1;
+    } else {
+      pointerAmtTarget = 0;
+    }
+    uniforms.uPointerAmt.value += (pointerAmtTarget - uniforms.uPointerAmt.value) * 0.15;
+
+    uniforms.uHue.value += (hueTarget - uniforms.uHue.value) * 0.06;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
