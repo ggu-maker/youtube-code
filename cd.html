@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Digital CD</title>
+<style>
+  :root {
+    --bg-0: #060309;
+    --bg-1: #1a0f2e;
+    --ink: #f1ecff;
+    --dim: #8a7fb0;
+    --dim-2: #5c4f80;
+    --accent: #7df9ff;
+    --accent-2: #c77dff;
+    --accent-3: #ff5fa2;
+    --accent-glow: rgba(125,249,255,.55);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100%;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle at center, var(--bg-1) 0%, var(--bg-0) 45%, #000 100%);
+    font-family: Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+  }
+
+  /* ambient pulsing glow behind everything */
+  .aura {
+    position: absolute;
+    width: 900px;
+    height: 900px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(199,125,255,.16) 0%, rgba(125,249,255,.08) 40%, transparent 70%);
+    filter: blur(10px);
+    animation: aura 6s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes aura {
+    0%, 100% { opacity: .6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.08); }
+  }
+
+  /* drifting sparks */
+  .spark {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px 2px var(--accent-glow);
+    animation: drift linear infinite;
+    pointer-events: none;
+    opacity: 0;
+  }
+  @keyframes drift {
+    0% { transform: translateY(20px) scale(.6); opacity: 0; }
+    15% { opacity: .9; }
+    85% { opacity: .7; }
+    100% { transform: translateY(-620px) scale(1); opacity: 0; }
+  }
+
+  .scene {
+    position: relative;
+    width: 850px;
+    height: 700px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* background grid */
+  .grid {
+    position: absolute;
+    width: 650px;
+    height: 650px;
+    border-radius: 50%;
+    background: repeating-radial-gradient(circle, transparent 0px, transparent 45px, rgba(255,255,255,.025) 46px, transparent 47px);
+    opacity: .5;
+  }
+
+  /* orbits */
+  .orbit, .orbit2 {
+    position: absolute;
+    border-radius: 50%;
+  }
+  .orbit {
+    width: 560px;
+    height: 560px;
+    border: 1px solid rgba(125,249,255,.12);
+    animation: orbitSpin 12s linear infinite;
+  }
+  .orbit::before {
+    content: "";
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    top: -3.5px;
+    left: 50%;
+    box-shadow: 0 0 14px 3px var(--accent-glow);
+  }
+  .orbit2 {
+    width: 610px;
+    height: 610px;
+    border: 1px dashed rgba(199,125,255,.14);
+    animation: orbitReverse 18s linear infinite;
+  }
+  .orbit2::before {
+    content: "";
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent-3);
+    bottom: -2.5px;
+    left: 50%;
+    box-shadow: 0 0 10px 2px rgba(255,95,162,.6);
+  }
+
+  /* CD group: separates the manual drag transform from the spin animation */
+  .cd-wrap {
+    position: absolute;
+    width: 470px;
+    height: 470px;
+    cursor: grab;
+    touch-action: none;
+  }
+  .cd-wrap.grabbing { cursor: grabbing; }
+
+  .cd {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+      #050505, #444, #0a0a0a, #888, #111, #555, #050505, #aaa, #111, #444, #050505);
+    border: 2px solid #8a7fa8;
+    box-shadow:
+      0 0 55px rgba(125,249,255,.12),
+      0 0 90px rgba(199,125,255,.08),
+      0 35px 80px rgba(0,0,0,.9),
+      inset 0 0 40px rgba(255,255,255,.15);
+    animation: spin 2.8s linear infinite;
+    transition: filter .5s ease, box-shadow .3s ease;
+  }
+  .cd-wrap.grabbing .cd {
+    box-shadow:
+      0 0 80px rgba(125,249,255,.22),
+      0 0 110px rgba(199,125,255,.16),
+      0 35px 80px rgba(0,0,0,.9),
+      inset 0 0 40px rgba(255,255,255,.2);
+  }
+
+  .cd::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    background: repeating-radial-gradient(circle,
+      transparent 0px, transparent 5px,
+      rgba(255,255,255,.13) 6px, rgba(0,0,0,.3) 7px, transparent 8px);
+    pointer-events: none;
+  }
+
+  .cd::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    background: conic-gradient(
+      transparent 0deg, transparent 30deg, rgba(125,249,255,.55) 48deg, transparent 66deg,
+      transparent 165deg, rgba(199,125,255,.4) 190deg, transparent 215deg,
+      transparent 295deg, rgba(255,95,162,.45) 318deg, transparent 340deg);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    animation: iridesce 5s linear infinite;
+  }
+  @keyframes iridesce {
+    0% { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(360deg); }
+  }
+
+  /* track label text following the disc's curve */
+  .label-text {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .label-text text {
+    fill: rgba(125,249,255,.6);
+    font-family: 'Courier New', monospace;
+    font-size: 12.5px;
+    letter-spacing: 4px;
+  }
+
+  .center {
+    position: absolute;
+    width: 155px;
+    height: 155px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle, #fafafa 0%, #d8d8d8 48%, #555 50%, #111 54%, #777 55%, #ddd 70%, #999 100%);
+    box-shadow: inset 0 0 20px rgba(0,0,0,.6), 0 0 20px rgba(255,255,255,.08);
+  }
+
+  .marker {
+    position: absolute;
+    width: 7px;
+    height: 38px;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 5px;
+    background: #111;
+    box-shadow: 0 0 5px rgba(255,255,255,.5);
+  }
+
+  .hole {
+    position: absolute;
+    width: 17px;
+    height: 17px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #050505;
+    border: 3px solid #aaa;
+    box-shadow: 0 0 8px #000;
+    z-index: 5;
+  }
+
+  /* laser read head sweeping across the disc while playing */
+  .laser {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 235px;
+    height: 1.5px;
+    transform-origin: left center;
+    background: linear-gradient(90deg, rgba(255,95,162,.75), rgba(125,249,255,0) 70%);
+    animation: sweep 4.2s ease-in-out infinite;
+    pointer-events: none;
+    mix-blend-mode: screen;
+  }
+
+  /* corner info */
+  .info {
+    position: absolute;
+    left: 55px;
+    bottom: 55px;
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    line-height: 2;
+  }
+  .info span { color: var(--accent); text-shadow: 0 0 8px rgba(125,249,255,.5); }
+
+  .rotation {
+    position: absolute;
+    right: 55px;
+    bottom: 55px;
+    text-align: right;
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #666;
+  }
+  .rotation strong {
+    display: block;
+    font-size: 16px;
+    color: var(--accent-2);
+    text-shadow: 0 0 10px rgba(199,125,255,.55);
+    margin-top: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* equalizer */
+  .eq {
+    position: absolute;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 26px;
+    left: 55px;
+    top: 55px;
+  }
+  .eq span {
+    width: 3px;
+    height: 30%;
+    border-radius: 2px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 6px rgba(125,249,255,.5);
+    transition: height .12s ease;
+  }
+
+  /* progress ring around the whole scene */
+  .progress-ring {
+    position: absolute;
+    width: 640px;
+    height: 640px;
+    pointer-events: none;
+  }
+  .progress-ring circle {
+    fill: none;
+    stroke-width: 1.5;
+  }
+  .progress-ring .track { stroke: rgba(199,125,255,.08); }
+  .progress-ring .bar {
+    stroke: url(#ringGradient);
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset .25s linear;
+    filter: drop-shadow(0 0 6px rgba(125,249,255,.6));
+  }
+
+  .power {
+    position: absolute;
+    bottom: 55px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 34px;
+    border-radius: 30px;
+    background: #14101f;
+    border: 1px solid #55486e;
+    cursor: pointer;
+    box-shadow: inset 0 0 8px #000, 0 5px 15px rgba(0,0,0,.6);
+    transition: .3s;
+  }
+  .power:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .power-dot {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 4px;
+    top: 4px;
+    border-radius: 50%;
+    background: #5c4f80;
+    transition: .35s;
+    box-shadow: 0 0 5px #000;
+  }
+  .power.on { border-color: var(--accent-2); }
+  .power.on .power-dot {
+    left: 42px;
+    background: var(--accent);
+    box-shadow: 0 0 14px var(--accent), 0 0 26px rgba(199,125,255,.6);
+  }
+
+  .hint {
+    position: absolute;
+    top: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--dim-2);
+    text-align: center;
+  }
+
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes orbitSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes orbitReverse { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+  @keyframes sweep {
+    0%, 100% { transform: rotate(-18deg) scaleX(.85); opacity: .5; }
+    50% { transform: rotate(18deg) scaleX(1); opacity: .9; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cd, .orbit, .orbit2, .laser { animation: none !important; }
+  }
+
+  @media (max-width: 900px) { .scene { transform: scale(.75); } }
+  @media (max-width: 650px) { .scene { transform: scale(.5); } }
+</style>
+</head>
+<body>
+
+<div class="aura"></div>
+
+<div class="scene">
+
+  <div class="grid"></div>
+  <div class="orbit"></div>
+  <div class="orbit2"></div>
+
+  <svg class="progress-ring" viewBox="0 0 640 640" aria-hidden="true">
+    <defs>
+      <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#7df9ff" />
+        <stop offset="50%" stop-color="#c77dff" />
+        <stop offset="100%" stop-color="#ff5fa2" />
+      </linearGradient>
+    </defs>
+    <circle class="track" cx="320" cy="320" r="318"></circle>
+    <circle class="bar" id="progressBar" cx="320" cy="320" r="318"
+      stroke-dasharray="1998.8" stroke-dashoffset="1998.8"></circle>
+  </svg>
+
+  <div class="eq" id="eq" aria-hidden="true">
+    <span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="hint" id="hint">drag the disc &middot; space to play/pause</div>
+
+  <div class="cd-wrap" id="cdWrap" role="slider" tabindex="0"
+       aria-label="CD, drag to spin, space to toggle playback"
+       aria-valuemin="0" aria-valuemax="359" aria-valuenow="0">
+
+    <div class="cd" id="cd">
+      <svg class="label-text" viewBox="0 0 470 470">
+        <defs>
+          <path id="labelCircle" d="M 235,80 A 155,155 0 1,1 234.99,80" />
+        </defs>
+        <text>
+          <textPath href="#labelCircle" startOffset="0%">
+            DIGITAL SESSIONS &middot; TRACK 01 &middot; DIGITAL SESSIONS &middot; TRACK 01 &middot;
+          </textPath>
+        </text>
+      </svg>
+
+      <div class="laser" id="laser"></div>
+
+      <div class="center">
+        <div class="marker"></div>
+        <div class="hole"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="info">
+    SYSTEM <span>01</span><br>
+    MEDIA <span>CD-ROM</span><br>
+    STATUS <span id="status">PLAY</span>
+  </div>
+
+  <div class="rotation">
+    ROTATION
+    <strong id="rpm">33 RPM</strong>
+  </div>
+
+  <button class="power on" id="power" aria-pressed="true" aria-label="Toggle play/pause">
+    <div class="power-dot"></div>
+  </button>
+
+</div>
+
+<script>
+(function () {
+  const cdWrap   = document.getElementById("cdWrap");
+  const cd       = document.getElementById("cd");
+  const power    = document.getElementById("power");
+  const status   = document.getElementById("status");
+  const rpm      = document.getElementById("rpm");
+  const laser    = document.getElementById("laser");
+  const progress = document.getElementById("progressBar");
+  const hint     = document.getElementById("hint");
+  const eqBars   = document.querySelectorAll("#eq span");
+  const scene    = document.querySelector(".scene");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // --- ambient sparks --------------------------------------------------
+  if (!reduceMotion) {
+    for (let i = 0; i < 14; i++) {
+      const s = document.createElement("div");
+      s.className = "spark";
+      const colors = ["#7df9ff", "#c77dff", "#ff5fa2"];
+      s.style.background = colors[i % colors.length];
+      s.style.boxShadow = `0 0 8px 2px ${colors[i % colors.length]}`;
+      s.style.left = Math.random() * 100 + "%";
+      s.style.bottom = "-20px";
+      s.style.animationDuration = (6 + Math.random() * 6) + "s";
+      s.style.animationDelay = (Math.random() * 8) + "s";
+      scene.appendChild(s);
+    }
+  }
+
+  const CIRC = 2 * Math.PI * 318;
+  const DURATION = 180; // seconds, simulated track length
+
+  let playing = true;
+  let elapsed = 0;
+  let lastTick = performance.now();
+
+  let dragging = false;
+  let dragAngle = 0;        // manual rotation offset applied on top of the CSS animation
+  let lastPointerAngle = 0;
+  let velocity = 0;         // for inertia after release
+  let inertiaFrame = null;
+
+  function angleFromEvent(e) {
+    const rect = cdWrap.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    return Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+  }
+
+  function setPlaying(next) {
+    playing = next;
+    cd.style.animationPlayState = playing ? "running" : "paused";
+    power.classList.toggle("on", playing);
+    power.setAttribute("aria-pressed", String(playing));
+    status.textContent = playing ? "PLAY" : "STOP";
+    rpm.textContent = playing ? "33 RPM" : "00 RPM";
+  }
+
+  power.addEventListener("click", () => setPlaying(!playing));
+
+  cdWrap.addEventListener("keydown", (e) => {
+    if (e.code === "Space") {
+      e.preventDefault();
+      setPlaying(!playing);
+    }
+  });
+
+  // --- equalizer ---------------------------------------------------
+  function tickEq() {
+    eqBars.forEach((bar) => {
+      const h = playing && !dragging ? 20 + Math.random() * 80 : 15;
+      bar.style.height = h + "%";
+    });
+    setTimeout(tickEq, 130);
+  }
+  tickEq();
+
+  // --- drag to spin -------------------------------------------------
+  function onPointerDown(e) {
+    dragging = true;
+    cancelAnimationFrame(inertiaFrame);
+    cdWrap.classList.add("grabbing");
+    cd.style.animationPlayState = "paused";
+    lastPointerAngle = angleFromEvent(e);
+    hint.style.opacity = "0";
+    cdWrap.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e) {
+    if (!dragging) return;
+    const angle = angleFromEvent(e);
+    let delta = angle - lastPointerAngle;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    dragAngle += delta;
+    velocity = delta;
+    lastPointerAngle = angle;
+    cd.style.transform = `rotate(${dragAngle}deg)`;
+    cdWrap.setAttribute("aria-valuenow", String(((dragAngle % 360) + 360) % 360 | 0));
+  }
+
+  function onPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    cdWrap.classList.remove("grabbing");
+    inertiaSpin();
+  }
+
+  function inertiaSpin() {
+    if (Math.abs(velocity) < 0.15) {
+      // hand back to the CSS keyframe animation from a matching angle
+      cd.style.transform = "";
+      if (playing) cd.style.animationPlayState = "running";
+      return;
+    }
+    dragAngle += velocity;
+    velocity *= 0.955;
+    cd.style.transform = `rotate(${dragAngle}deg)`;
+    inertiaFrame = requestAnimationFrame(inertiaSpin);
+  }
+
+  cdWrap.addEventListener("pointerdown", onPointerDown);
+  cdWrap.addEventListener("pointermove", onPointerMove);
+  cdWrap.addEventListener("pointerup", onPointerUp);
+  cdWrap.addEventListener("pointercancel", onPointerUp);
+
+  // --- simulated playback progress + laser sweep ---------------------
+  function tick(now) {
+    const dt = (now - lastTick) / 1000;
+    lastTick = now;
+
+    if (playing && !dragging) {
+      elapsed = (elapsed + dt) % DURATION;
+    }
+
+    const frac = elapsed / DURATION;
+    progress.style.strokeDashoffset = String(CIRC * (1 - frac));
+    laser.style.animationPlayState = playing && !dragging ? "running" : "paused";
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+
+</body>
+</html>
