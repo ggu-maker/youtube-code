@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ben 10 - 3D Diamondhead Animation</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 50% 30%, #03140e 0%, #010805 60%, #000201 100%);
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      color: #e2fef1;
+    }
+
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Omnitrix Themed UI Overlay */
+    .hud-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 24px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .omnitrix-badge {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: #111;
+      border: 3px solid #00ff73;
+      box-shadow: 0 0 16px #00ff73, inset 0 0 10px #00ff73;
+      position: relative;
+      cursor: pointer;
+      pointer-events: auto;
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .omnitrix-badge:hover {
+      transform: scale(1.1) rotate(15deg);
+    }
+    .omnitrix-core {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 32px;
+      height: 32px;
+    }
+    .omnitrix-core::before, .omnitrix-core::after {
+      content: '';
+      position: absolute;
+      width: 0;
+      height: 0;
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+    }
+    .omnitrix-core::before {
+      top: 2px;
+      left: 4px;
+      border-top: 14px solid #00ff73;
+    }
+    .omnitrix-core::after {
+      bottom: 2px;
+      left: 4px;
+      border-bottom: 14px solid #00ff73;
+    }
+
+    .title-box {
+      display: flex;
+      flex-direction: column;
+    }
+    .title-box h1 {
+      font-size: 26px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      font-weight: 900;
+      color: #92ffd4;
+      text-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
+    }
+    .title-box span {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: #55cca2;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Attack & Control Dock */
+    .controls-dock {
+      align-self: center;
+      display: flex;
+      gap: 12px;
+      background: rgba(3, 16, 12, 0.85);
+      padding: 10px 18px;
+      border-radius: 40px;
+      border: 1px solid rgba(0, 255, 115, 0.3);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+      pointer-events: auto;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .action-btn {
+      background: rgba(8, 28, 21, 0.9);
+      border: 1.5px solid #00dd77;
+      color: #b7ffdf;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.25s ease;
+    }
+
+    .action-btn:hover {
+      background: #00dd77;
+      color: #02120a;
+      box-shadow: 0 0 20px rgba(0, 255, 115, 0.6);
+      transform: translateY(-2px);
+    }
+
+    .action-btn:active {
+      transform: translateY(1px) scale(0.97);
+    }
+
+    .action-btn.active {
+      background: #00e676;
+      color: #011108;
+      box-shadow: 0 0 18px #00ff88;
+    }
+
+    /* Camera & Lighting Dock */
+    .cam-dock {
+      position: absolute;
+      right: 24px;
+      top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .cam-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: rgba(4, 24, 18, 0.85);
+      border: 1px solid rgba(0, 255, 136, 0.4);
+      color: #8cffcf;
+      font-size: 12px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .cam-btn:hover {
+      background: rgba(0, 255, 136, 0.3);
+      color: #ffffff;
+      border-color: #00ff88;
+    }
+
+    /* Bottom Toolbar */
+    .bottom-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .tool-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      pointer-events: auto;
+    }
+
+    .audio-toggle {
+      cursor: pointer;
+      color: #43c593;
+      font-size: 12px;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      background: rgba(4, 20, 15, 0.7);
+      padding: 6px 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(0, 255, 115, 0.25);
+    }
+    .audio-toggle:hover {
+      color: #00ff88;
+      border-color: #00ff88;
+    }
+
+    /* Real-Time Brightness Slider HUD */
+    .brightness-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(4, 20, 15, 0.7);
+      padding: 6px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(0, 255, 115, 0.25);
+      font-size: 11px;
+      color: #79e9bc;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+    .brightness-control input[type="range"] {
+      -webkit-appearance: none;
+      width: 80px;
+      height: 4px;
+      border-radius: 2px;
+      background: #144432;
+      outline: none;
+      cursor: pointer;
+    }
+    .brightness-control input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #00ff88;
+      box-shadow: 0 0 6px #00ff88;
+      cursor: pointer;
+    }
+
+    .instructions-hint {
+      font-size: 11px;
+      color: rgba(146, 255, 212, 0.6);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    /* Screen Flash */
+    #impact-flash {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(70, 220, 160, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 5;
+      transition: opacity 0.08s ease-out;
+    }
+
+    @media (max-width: 768px) {
+      .title-box h1 { font-size: 20px; }
+      .controls-dock { gap: 6px; padding: 8px 12px; }
+      .action-btn { padding: 8px 12px; font-size: 11px; }
+      .instructions-hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="impact-flash"></div>
+  <canvas id="webgl-canvas"></canvas>
+
+  <div class="hud-layer">
+    <div class="header">
+      <div class="omnitrix-badge" id="omnitrixLogo" title="Petrosapien Alien DNA">
+        <div class="omnitrix-core"></div>
+      </div>
+      <div class="title-box">
+        <h1>Diamondhead</h1>
+        <span>Species: Petrosapien | Planet: Petropia</span>
+      </div>
+    </div>
+
+    <div class="cam-dock">
+      <button class="cam-btn" id="camFront" title="Front View">F</button>
+      <button class="cam-btn" id="camBack" title="Back View">B</button>
+      <button class="cam-btn" id="camAction" title="Action Dynamic View">A</button>
+      <button class="cam-btn" id="camClose" title="Close Up Head">C</button>
+      <button class="cam-btn" id="camTop" title="Top-Down View">T</button>
+    </div>
+
+    <div class="controls-dock">
+      <button class="action-btn active" id="btnIdle">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+        Combat Stance
+      </button>
+      <button class="action-btn" id="btnEruption">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
+        Crystal Eruption
+      </button>
+      <button class="action-btn" id="btnBlades">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14.5 4.5l-3 3L7 3 3 7l4.5 4.5-3 3 1.4 1.4 3-3L13 17l4-4-4.5-4.5 3-3z"/></svg>
+        Diamond Blades
+      </button>
+      <button class="action-btn" id="btnBarrage">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2.05v3.03c3.39.49 6 3.39 6 6.92 0 .9-.18 1.75-.48 2.54l2.6 1.53c.56-1.24.88-2.62.88-4.07 0-5.18-3.95-9.45-9-9.95zM12 19c-3.87 0-7-3.13-7-7 0-3.53 2.61-6.43 6-6.92V2.05c-5.06.5-9 4.76-9 9.95 0 5.52 4.47 10 9.99 10 3.31 0 6.24-1.61 8.01-4.09l-2.49-1.46C16.14 18.04 14.21 19 12 19z"/></svg>
+        Shard Barrage
+      </button>
+      <button class="action-btn" id="btnShield">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+        Crystal Barrier
+      </button>
+    </div>
+
+    <div class="bottom-bar">
+      <div class="tool-group">
+        <div class="audio-toggle" id="audioToggle">
+          <span id="audioIcon">🔊</span> SOUND ON
+        </div>
+        <div class="brightness-control">
+          <span>🔆 BRIGHTNESS</span>
+          <input type="range" id="brightnessSlider" min="0.3" max="1.5" step="0.05" value="0.85">
+        </div>
+      </div>
+      <div class="instructions-hint">
+        Drag to rotate • Scroll to zoom • Right-click pan
+      </div>
+    </div>
+  </div>
+
+  <!-- CDN Dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+  <script>
+    /* =========================================================================
+       AUDIO SYNTHESIZER (Pure Web Audio API - Zero External Audio Files)
+       ========================================================================= */
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playOmnitrixChirp() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, t);
+        osc.frequency.exponentialRampToValueAtTime(880, t + 0.08);
+        osc.frequency.exponentialRampToValueAtTime(1760, t + 0.18);
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.36);
+      }
+      playCrystalChime() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        [1046.5, 1318.5, 1567.98, 2093.0].forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, t + i * 0.04);
+          gain.gain.setValueAtTime(0.1, t + i * 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.04 + 0.5);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t + i * 0.04);
+          osc.stop(t + i * 0.04 + 0.55);
+        });
+      }
+      playSlamImpact() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        // Sub-bass drop
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.exponentialRampToValueAtTime(25, t + 0.45);
+        gain.gain.setValueAtTime(0.65, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.7);
+
+        // Noise crack
+        const bufferSize = this.ctx.sampleRate * 0.2;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 900;
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.25, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.ctx.destination);
+        noise.start(t);
+      }
+      playBladeSheath() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(700, t);
+        osc.frequency.exponentialRampToValueAtTime(2000, t + 0.15);
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.26);
+      }
+      playShardShot() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1200, t);
+        osc.frequency.exponentialRampToValueAtTime(300, t + 0.1);
+        gain.gain.setValueAtTime(0.14, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.13);
+      }
+      playShieldHum() {
+        if (!this.enabled) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(220, t);
+        osc.frequency.linearRampToValueAtTime(320, t + 0.25);
+        osc.frequency.linearRampToValueAtTime(220, t + 0.7);
+        gain.gain.setValueAtTime(0.2, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.85);
+      }
+    }
+    const sounds = new SoundEngine();
+
+    /* =========================================================================
+       SCENE SETUP & THREE.JS RENDERER (Balanced Lighting & Exposure)
+       ========================================================================= */
+    const canvas = document.getElementById('webgl-canvas');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x010805, 0.025);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 3.5, 11);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.85; // Clean balanced exposure
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 + 0.05;
+    controls.minDistance = 3;
+    controls.maxDistance = 25;
+    controls.target.set(0, 2.5, 0);
+
+    // Controlled Bloom Pass (Prevents blown-out white glare)
+    const renderScene = new THREE.RenderPass(scene, camera);
+    const bloomPass = new THREE.UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.32,  // Bloom strength dialed down to crisp level
+      0.28,  // Bloom radius
+      0.88   // High threshold: ONLY glowing Omnitrix/eyes bloom!
+    );
+    const composer = new THREE.EffectComposer(renderer);
+    composer.addPass(renderScene);
+    composer.addPass(bloomPass);
+
+    /* =========================================================================
+       BALANCED LIGHTING (No Overexposure)
+       ========================================================================= */
+    const ambientLight = new THREE.AmbientLight(0x081510, 0.5);
+    scene.add(ambientLight);
+
+    const mainLight = new THREE.DirectionalLight(0xf5fffa, 1.15);
+    mainLight.position.set(6, 12, 8);
+    mainLight.castShadow = true;
+    mainLight.shadow.mapSize.width = 2048;
+    mainLight.shadow.mapSize.height = 2048;
+    mainLight.shadow.bias = -0.0005;
+    mainLight.shadow.camera.near = 1;
+    mainLight.shadow.camera.far = 30;
+    mainLight.shadow.camera.left = -6;
+    mainLight.shadow.camera.right = 6;
+    mainLight.shadow.camera.top = 8;
+    mainLight.shadow.camera.bottom = -2;
+    scene.add(mainLight);
+
+    const rimLight1 = new THREE.DirectionalLight(0x00e676, 0.85);
+    rimLight1.position.set(-8, 6, -8);
+    scene.add(rimLight1);
+
+    const rimLight2 = new THREE.PointLight(0x40e0d0, 0.6, 15);
+    rimLight2.position.set(0, 5, -5);
+    scene.add(rimLight2);
+
+    const groundGlow = new THREE.PointLight(0x00ff88, 0.35, 8);
+    groundGlow.position.set(0, 0.4, 0);
+    scene.add(groundGlow);
+
+    /* =========================================================================
+       PETROPIA ENVIRONMENT PLATFORM
+       ========================================================================= */
+    const floorGeo = new THREE.CylinderGeometry(14, 15, 0.8, 32);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: 0x050f0b,
+      roughness: 0.8,
+      metalness: 0.2
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.position.y = -0.4;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Subtle Alien Circuit Rings
+    const ringGeo = new THREE.RingGeometry(3.5, 4.2, 48);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.25
+    });
+    const glyphRing = new THREE.Mesh(ringGeo, ringMat);
+    glyphRing.rotation.x = -Math.PI / 2;
+    glyphRing.position.y = 0.02;
+    scene.add(glyphRing);
+
+    const outerRingGeo = new THREE.RingGeometry(8.5, 8.8, 64);
+    const outerRing = new THREE.Mesh(outerRingGeo, ringMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    outerRing.position.y = 0.02;
+    scene.add(outerRing);
+
+    // Floating crystal ambient particles (Soft, subtle motes)
+    const particleCount = 70;
+    const particleGeo = new THREE.TetrahedronGeometry(0.045, 0);
+    const particleMat = new THREE.MeshStandardMaterial({
+      color: 0x2ec287,
+      roughness: 0.4,
+      metalness: 0.2,
+      transparent: true,
+      opacity: 0.55
+    });
+    const particleGroup = new THREE.Group();
+    const particleData = [];
+    for (let i = 0; i < particleCount; i++) {
+      const p = new THREE.Mesh(particleGeo, particleMat);
+      p.position.set(
+        (Math.random() - 0.5) * 16,
+        Math.random() * 8 + 0.2,
+        (Math.random() - 0.5) * 16
+      );
+      p.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+      particleGroup.add(p);
+      particleData.push({
+        baseY: p.position.y,
+        speed: 0.4 + Math.random() * 0.8,
+        rotSpeed: (Math.random() - 0.5) * 2,
+        angle: Math.random() * Math.PI * 2
+      });
+    }
+    scene.add(particleGroup);
+
+    /* =========================================================================
+       DIAMONDHEAD 3D MODEL - SHOW-ACCURATE PETROSAPIEN ANATOMY
+       Engineered to precisely match the original Ben 10 character art:
+       - Chiseled Hexagonal Jaw/Goatee, Stern Visor Brow, Slanted Glowing Eyes
+       - Triple-Horn Crown: Center Back-Swept Blade, Dorsal Fin & Lateral Ear Horns
+       - Massive Scapular Back Blades towering high above Head & Shoulders
+       - 100% Mint Crystal Arms: Huge Blocky Shoulder Boulders & Heavy Gauntlets
+       - Long Alien Ape-Index Reach with 4 Articulated Beveled Crystal Fingers
+       - Classic Sleeveless 50/50 Suit (Right Black / Left White) with Pectoral Shelves
+       - Stylized Cartoon Legs with Flared Muscular Calves & Pointed Comic Boots
+       - Crisp Hand-Drawn Comic Facet Ink Lines (EdgesGeometry)
+       ========================================================================= */
+
+    // Authentic Mint Celadon Crystal Material (True Petrosapien gem shade)
+    const crystalMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x7ce2b8,
+      emissive: 0x032014,
+      roughness: 0.16,
+      metalness: 0.04,
+      clearcoat: 0.95,
+      clearcoatRoughness: 0.06,
+      flatShading: true // Crisp cut-gem reflections
+    });
+
+    const blackSuitMat = new THREE.MeshStandardMaterial({
+      color: 0x0f1114,
+      roughness: 0.7,
+      metalness: 0.12,
+      flatShading: true
+    });
+
+    const whiteSuitMat = new THREE.MeshStandardMaterial({
+      color: 0xf4f8fa,
+      roughness: 0.55,
+      metalness: 0.06,
+      flatShading: true
+    });
+
+    const eyeGlowMat = new THREE.MeshBasicMaterial({ color: 0xffee00 });
+    const eyeSocketMat = new THREE.MeshBasicMaterial({ color: 0x04140d });
+
+    const omnitrixRimMat = new THREE.MeshStandardMaterial({
+      color: 0x181c1e,
+      roughness: 0.35,
+      metalness: 0.9
+    });
+    const omnitrixWhiteMat = new THREE.MeshStandardMaterial({
+      color: 0xdfe6ea,
+      roughness: 0.25,
+      metalness: 0.95
+    });
+    const omnitrixGreenGlowMat = new THREE.MeshBasicMaterial({ color: 0x00ff66 });
+
+    // Helper: Build faceted crystal mesh with crisp comic ink line edges
+    function createFacetMesh(geo, mat, outlineColor = 0x07301d, threshold = 16) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      
+      const edges = new THREE.EdgesGeometry(geo, threshold);
+      const line = new THREE.LineSegments(
+        edges, 
+        new THREE.LineBasicMaterial({ color: outlineColor, linewidth: 1.5 })
+      );
+      mesh.add(line);
+      return mesh;
+    }
+
+    const diamondhead = new THREE.Group();
+    scene.add(diamondhead);
+
+    // Torso Group (Broad Heroic Superhero Physique with Defined Pectorals)
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.y = 2.75;
+    diamondhead.add(torsoGroup);
+
+    // 50/50 Bodysuit: Right side (x < 0) = Black, Left side (x > 0) = White
+    const chestHeight = 1.45;
+    const chestTopW = 1.5;
+    const waistW = 0.88;
+
+    // Right chest (Black)
+    const rightChestGeo = new THREE.CylinderGeometry(chestTopW * 0.5, waistW * 0.5, chestHeight, 6, 1, false, Math.PI, Math.PI);
+    rightChestGeo.scale(1, 1, 0.9);
+    const rightChest = new THREE.Mesh(rightChestGeo, blackSuitMat);
+    rightChest.castShadow = true;
+    rightChest.receiveShadow = true;
+    torsoGroup.add(rightChest);
+
+    // Left chest (White)
+    const leftChestGeo = new THREE.CylinderGeometry(chestTopW * 0.5, waistW * 0.5, chestHeight, 6, 1, false, 0, Math.PI);
+    leftChestGeo.scale(1, 1, 0.9);
+    const leftChest = new THREE.Mesh(leftChestGeo, whiteSuitMat);
+    leftChest.castShadow = true;
+    leftChest.receiveShadow = true;
+    torsoGroup.add(leftChest);
+
+    // Defined Pectoral Muscle Shelves
+    const rightPecGeo = new THREE.BoxGeometry(0.55, 0.42, 0.22);
+    const rightPec = new THREE.Mesh(rightPecGeo, blackSuitMat);
+    rightPec.position.set(-0.35, 0.26, 0.38);
+    rightPec.rotation.set(0.12, 0.15, -0.08);
+    rightPec.castShadow = true;
+    torsoGroup.add(rightPec);
+
+    const leftPecGeo = new THREE.BoxGeometry(0.55, 0.42, 0.22);
+    const leftPec = new THREE.Mesh(leftPecGeo, whiteSuitMat);
+    leftPec.position.set(0.35, 0.26, 0.38);
+    leftPec.rotation.set(0.12, -0.15, 0.08);
+    leftPec.castShadow = true;
+    torsoGroup.add(leftPec);
+
+    // Center seam comic line
+    const seamGeo = new THREE.PlaneGeometry(0.015, chestHeight);
+    const seamLine = new THREE.Mesh(seamGeo, new THREE.MeshBasicMaterial({ color: 0x06120c }));
+    seamLine.position.set(0, 0, 0.48);
+    torsoGroup.add(seamLine);
+
+    // Muscular Crystal Neck (6-Faceted Pillar emerging from collar)
+    const neckGeo = new THREE.CylinderGeometry(0.34, 0.44, 0.5, 6);
+    const neck = createFacetMesh(neckGeo, crystalMaterial);
+    neck.position.set(0, 0.78, 0.02);
+    torsoGroup.add(neck);
+
+    // Omnitrix Badge on left chest (white side)
+    const omnitrixBadge = new THREE.Group();
+    omnitrixBadge.position.set(0.38, 0.34, 0.5);
+    omnitrixBadge.rotation.set(0.12, 0.24, -0.05);
+
+    const badgeBezel = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.04, 20), omnitrixRimMat);
+    badgeBezel.rotation.x = Math.PI / 2;
+    omnitrixBadge.add(badgeBezel);
+
+    const badgeRing = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 20), omnitrixWhiteMat);
+    badgeRing.rotation.x = Math.PI / 2;
+    omnitrixBadge.add(badgeRing);
+
+    // Iconic Hourglass Symbol
+    const hgShape = new THREE.Shape();
+    hgShape.moveTo(-0.075, 0.085);
+    hgShape.lineTo(0.075, 0.085);
+    hgShape.lineTo(-0.075, -0.085);
+    hgShape.lineTo(0.075, -0.085);
+    hgShape.closePath();
+
+    const hgMesh = new THREE.Mesh(new THREE.ShapeGeometry(hgShape), omnitrixGreenGlowMat);
+    hgMesh.position.z = 0.03;
+    omnitrixBadge.add(hgMesh);
+
+    const omnitrixLight = new THREE.PointLight(0x00ff88, 0.6, 2.0);
+    omnitrixLight.position.set(0, 0, 0.1);
+    omnitrixBadge.add(omnitrixLight);
+
+    torsoGroup.add(omnitrixBadge);
+
+    /* -------------------------------------------------------------------------
+       TOWERING SCAPULAR BACK SPIKES (Matching Reference Image 1)
+       Massive crystal blades towering high above his shoulders and head!
+       ------------------------------------------------------------------------- */
+    const backSpikesGroup = new THREE.Group();
+    backSpikesGroup.position.set(0, 0.68, -0.34);
+    torsoGroup.add(backSpikesGroup);
+
+    function createBackShard(length, radius, rotX, rotY, rotZ, posX, posY) {
+      const group = new THREE.Group();
+      group.position.set(posX, posY, 0);
+      group.rotation.set(rotX, rotY, rotZ);
+
+      // 6-sided razor crystal blade
+      const spikeGeo = new THREE.CylinderGeometry(0.02, radius, length, 6);
+      spikeGeo.translate(0, length / 2, 0);
+      const mesh = createFacetMesh(spikeGeo, crystalMaterial);
+      group.add(mesh);
+      return group;
+    }
+
+    // Top Upper Blades (Tall, imposing crystal pillars rising way above his head!)
+    const spikeTopL = createBackShard(2.8, 0.25, -0.42, 0.1, -0.25, 0.38, 0.12);
+    const spikeTopR = createBackShard(2.8, 0.25, -0.42, -0.1, 0.25, -0.38, 0.12);
+    backSpikesGroup.add(spikeTopL);
+    backSpikesGroup.add(spikeTopR);
+
+    // Lower Mid-Back Spikes (Stabilizing shards angled backwards and out)
+    const spikeBotL = createBackShard(1.7, 0.19, -0.75, 0.22, -0.5, 0.44, -0.18);
+    const spikeBotR = createBackShard(1.7, 0.19, -0.75, -0.22, 0.5, -0.44, -0.18);
+    backSpikesGroup.add(spikeBotL);
+    backSpikesGroup.add(spikeBotR);
+
+    /* -------------------------------------------------------------------------
+       HEAD GROUP - SCULPTED PETROSAPIEN HELMET
+       - Chiseled Jutting Hexagonal Chin / Goatee Wedge
+       - Stern Visor Brow Ridge & Slanted Glowing Eyes in Dark Sockets
+       - Triple-Horn Crown: Center Back-Swept Horn, Dorsal Fin & Side Ear Flares
+       ------------------------------------------------------------------------- */
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.2, 0.05);
+    torsoGroup.add(headGroup);
+
+    // 1. Angular Diamond Cranium (Tapered 8-sided prism)
+    const skullGeo = new THREE.CylinderGeometry(0.28, 0.38, 0.62, 8);
+    skullGeo.scale(0.95, 1, 1.3);
+    const skull = createFacetMesh(skullGeo, crystalMaterial);
+    headGroup.add(skull);
+
+    // 2. Chiseled Jutting Chin / Jaw Wedge (Authentic cut-gem goatee)
+    const chinGroup = new THREE.Group();
+    chinGroup.position.set(0, -0.28, 0.14);
+    headGroup.add(chinGroup);
+
+    const jawGeo = new THREE.ConeGeometry(0.3, 0.58, 6);
+    jawGeo.scale(1.1, 1, 1.3);
+    const jaw = createFacetMesh(jawGeo, crystalMaterial);
+    jaw.rotation.set(Math.PI - 0.28, 0, 0); // Angles forward and down
+    chinGroup.add(jaw);
+
+    // Flat anterior chin facet plate
+    const chinPlateGeo = new THREE.BoxGeometry(0.22, 0.24, 0.1);
+    const chinPlate = createFacetMesh(chinPlateGeo, crystalMaterial);
+    chinPlate.position.set(0, -0.14, 0.24);
+    chinPlate.rotation.x = -0.28;
+    chinGroup.add(chinPlate);
+
+    // Mouth slit
+    const mouthGeo = new THREE.PlaneGeometry(0.19, 0.025);
+    const mouthMesh = new THREE.Mesh(mouthGeo, eyeSocketMat);
+    mouthMesh.position.set(0, -0.16, 0.36);
+    mouthMesh.rotation.x = -0.16;
+    headGroup.add(mouthMesh);
+
+    // 3. Pronounced Angular Brow Ridge (Heroic stern scowl visor)
+    const browGeo = new THREE.BoxGeometry(0.46, 0.09, 0.2);
+    const brow = createFacetMesh(browGeo, crystalMaterial);
+    brow.position.set(0, 0.12, 0.26);
+    brow.rotation.x = 0.28;
+    headGroup.add(brow);
+
+    // 4. Slanted Glowing Yellow Eyes in Dark Recessed Sockets
+    function buildDetailedEye(isRight) {
+      const eyeGroup = new THREE.Group();
+      const side = isRight ? -1 : 1;
+
+      // Dark socket recess
+      const socketGeo = new THREE.PlaneGeometry(0.16, 0.075);
+      const socket = new THREE.Mesh(socketGeo, eyeSocketMat);
+      eyeGroup.add(socket);
+
+      // Glowing sharp yellow pupil slit
+      const pupilGeo = new THREE.PlaneGeometry(0.13, 0.048);
+      const pupil = new THREE.Mesh(pupilGeo, eyeGlowMat);
+      pupil.position.z = 0.005;
+      eyeGroup.add(pupil);
+
+      eyeGroup.position.set(side * 0.14, 0.03, 0.34);
+      eyeGroup.rotation.set(0.12, side * 0.38, side * -0.32);
+      return eyeGroup;
+    }
+    headGroup.add(buildDetailedEye(true));
+    headGroup.add(buildDetailedEye(false));
+
+    const eyeLight = new THREE.PointLight(0xffee00, 0.45, 1.2);
+    eyeLight.position.set(0, 0.05, 0.46);
+    headGroup.add(eyeLight);
+
+    // 5. TRIPLE-HORN CROWN (Signature Diamondhead Silhouette)
+    // A) Central Back-Swept Blade Horn (Massive sharp crystal fin)
+    const mainHornGeo = new THREE.CylinderGeometry(0.02, 0.24, 1.6, 5);
+    mainHornGeo.translate(0, 0.72, 0);
+    const mainHorn = createFacetMesh(mainHornGeo, crystalMaterial);
+    mainHorn.rotation.set(-0.76, 0, 0); // Sweeps backward and up
+    mainHorn.position.set(0, 0.24, -0.16);
+    mainHorn.scale.set(0.55, 1.0, 1.3);
+    headGroup.add(mainHorn);
+
+    // B) Secondary Dorsal Fin (Along the rear spine)
+    const secHornGeo = new THREE.CylinderGeometry(0.015, 0.16, 0.95, 4);
+    secHornGeo.translate(0, 0.42, 0);
+    const secHorn = createFacetMesh(secHornGeo, crystalMaterial);
+    secHorn.rotation.set(-0.95, 0, 0);
+    secHorn.position.set(0, 0.12, -0.32);
+    secHorn.scale.set(0.4, 1.0, 1.15);
+    headGroup.add(secHorn);
+
+    // C) Left & Right Swept-Back Ear / Temple Horns (Seen clearly in Image 1!)
+    function buildTempleHorn(isRight) {
+      const side = isRight ? -1 : 1;
+      const hornGeo = new THREE.ConeGeometry(0.13, 0.75, 4);
+      hornGeo.translate(0, 0.35, 0);
+      const horn = createFacetMesh(hornGeo, crystalMaterial);
+      horn.position.set(side * 0.26, 0.2, -0.06);
+      horn.rotation.set(-0.65, side * 0.32, side * -0.52);
+      horn.scale.set(0.65, 1.0, 1.25);
+      return horn;
+    }
+    headGroup.add(buildTempleHorn(true));
+    headGroup.add(buildTempleHorn(false));
+
+    /* -------------------------------------------------------------------------
+       ARMS & BLADE MORPHS
+       100% Pure Mint Celadon Crystal:
+       - Massive Boulder Shoulders with Flat Tops & Sharp Facets
+       - Muscular Cut-Gem Biceps
+       - Heavy Crystalline Gauntlets with Long Ape-Index Reach (Hands near Knees)
+       - 4 Articulated Beveled Crystal Fingers + Thumb
+       ------------------------------------------------------------------------- */
+    function buildArm(isRight) {
+      const armGroup = new THREE.Group();
+      const side = isRight ? -1 : 1;
+      armGroup.position.set(side * 0.9, 0.54, 0);
+
+      // 1. Massive Crystal Shoulder Boulder (Flat-topped cut-gem pauldron)
+      const shoulderBoxGeo = new THREE.BoxGeometry(0.72, 0.52, 0.68);
+      const shoulderBox = createFacetMesh(shoulderBoxGeo, crystalMaterial);
+      shoulderBox.rotation.set(0.12, 0, side * -0.28);
+      armGroup.add(shoulderBox);
+
+      // Sharp outer apex wedge
+      const shoulderWedgeGeo = new THREE.ConeGeometry(0.35, 0.55, 5);
+      const shoulderWedge = createFacetMesh(shoulderWedgeGeo, crystalMaterial);
+      shoulderWedge.position.set(side * 0.38, 0.12, 0);
+      shoulderWedge.rotation.set(0, 0, side * -0.85);
+      armGroup.add(shoulderWedge);
+
+      // 2. Muscular Upper Arm (Bicep/Tricep)
+      const upperArmGroup = new THREE.Group();
+      upperArmGroup.position.set(side * 0.12, -0.25, 0);
+      armGroup.add(upperArmGroup);
+
+      const bicepGeo = new THREE.CylinderGeometry(0.26, 0.22, 0.85, 6);
+      bicepGeo.scale(1.15, 1, 1.2);
+      const bicep = createFacetMesh(bicepGeo, crystalMaterial);
+      bicep.position.y = -0.38;
+      upperArmGroup.add(bicep);
+
+      // 3. Heavy Forearm Gauntlet (Massive, long crystalline bracer)
+      const forearmGroup = new THREE.Group();
+      forearmGroup.position.set(0, -0.85, 0);
+      upperArmGroup.add(forearmGroup);
+
+      // Wide elbow, massive mid-belly diamond facet, tapered wrist
+      const forearmGeo = new THREE.CylinderGeometry(0.38, 0.26, 1.3, 6);
+      forearmGeo.scale(1.18, 1, 1.4);
+      const forearm = createFacetMesh(forearmGeo, crystalMaterial);
+      forearm.position.y = -0.58;
+      forearmGroup.add(forearm);
+
+      // 4. Hand Group with 4 Articulated Blocky Fingers + Thumb
+      const handGroup = new THREE.Group();
+      handGroup.position.set(0, -1.28, 0);
+      forearmGroup.add(handGroup);
+
+      const palmGeo = new THREE.BoxGeometry(0.34, 0.34, 0.2);
+      const palm = createFacetMesh(palmGeo, crystalMaterial);
+      handGroup.add(palm);
+
+      const fingers = [];
+      for (let f = 0; f < 4; f++) {
+        const fOffset = (f - 1.5) * 0.095;
+        // Segmented beveled crystal finger
+        const fingerGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.38, 5);
+        fingerGeo.translate(0, -0.19, 0);
+        const finger = createFacetMesh(fingerGeo, crystalMaterial);
+        finger.position.set(fOffset, -0.17, 0.02);
+        handGroup.add(finger);
+        fingers.push(finger);
+      }
+
+      // Powerful angled thumb
+      const thumbGeo = new THREE.CylinderGeometry(0.048, 0.055, 0.3, 5);
+      thumbGeo.translate(0, -0.15, 0);
+      const thumb = createFacetMesh(thumbGeo, crystalMaterial);
+      thumb.position.set(side * -0.2, -0.06, 0.05);
+      thumb.rotation.set(0.22, 0, side * 0.65);
+      handGroup.add(thumb);
+      fingers.push(thumb);
+
+      // 5. Giant Diamond Blade (Morph mode!)
+      const bladeGroup = new THREE.Group();
+      bladeGroup.position.set(0, -0.15, 0);
+      bladeGroup.scale.set(0.001, 0.001, 0.001);
+      bladeGroup.visible = false;
+
+      // 2.7m double-edged razor crystal broadsword (Image 3)
+      const bladeGeo = new THREE.CylinderGeometry(0.02, 0.44, 2.7, 4);
+      bladeGeo.scale(0.18, 1, 1.65);
+      bladeGeo.translate(0, -1.25, 0);
+      const bladeMesh = createFacetMesh(bladeGeo, crystalMaterial);
+      bladeGroup.add(bladeMesh);
+
+      const bladeEdgeGeo = new THREE.BoxGeometry(0.025, 2.5, 0.06);
+      bladeEdgeGeo.translate(0, -1.25, 0.35);
+      const bladeEdge = new THREE.Mesh(bladeEdgeGeo, omnitrixGreenGlowMat);
+      bladeGroup.add(bladeEdge);
+
+      handGroup.add(bladeGroup);
+
+      return { armGroup, upperArmGroup, forearmGroup, handGroup, bladeGroup, fingers };
+    }
+
+    const rightArm = buildArm(true);
+    const leftArm = buildArm(false);
+    torsoGroup.add(rightArm.armGroup);
+    torsoGroup.add(leftArm.armGroup);
+
+    /* -------------------------------------------------------------------------
+       PELVIS, MUSCULAR LEGS & STYLIZED COMIC BOOTS
+       - 100% Bodysuit: Right Leg Solid Black, Left Leg Solid White
+       - Flared Muscular Calves with Signature Cartoon Arch
+       - Angular Comic Boots with Beveled Soles & Pointed Toes (Matching Image 1)
+       ------------------------------------------------------------------------- */
+    const lowerBody = new THREE.Group();
+    diamondhead.add(lowerBody);
+
+    const pelvisHeight = 0.55;
+    const rightPelvisGeo = new THREE.CylinderGeometry(0.48, 0.42, pelvisHeight, 6, 1, false, Math.PI, Math.PI);
+    rightPelvisGeo.scale(0.95, 1, 0.85);
+    const rightPelvis = new THREE.Mesh(rightPelvisGeo, blackSuitMat);
+    rightPelvis.position.y = 2.0;
+    rightPelvis.castShadow = true;
+    lowerBody.add(rightPelvis);
+
+    const leftPelvisGeo = new THREE.CylinderGeometry(0.48, 0.42, pelvisHeight, 6, 1, false, 0, Math.PI);
+    leftPelvisGeo.scale(0.95, 1, 0.85);
+    const leftPelvis = new THREE.Mesh(leftPelvisGeo, whiteSuitMat);
+    leftPelvis.position.y = 2.0;
+    leftPelvis.castShadow = true;
+    lowerBody.add(leftPelvis);
+
+    function buildLeg(isRight) {
+      const legGroup = new THREE.Group();
+      const side = isRight ? -1 : 1;
+      const suitMat = isRight ? blackSuitMat : whiteSuitMat;
+      legGroup.position.set(side * 0.38, 1.8, 0);
+
+      // Powerful Muscular Thigh
+      const thighGeo = new THREE.CylinderGeometry(0.32, 0.23, 0.95, 6);
+      thighGeo.scale(1.08, 1, 1.22);
+      const thigh = new THREE.Mesh(thighGeo, suitMat);
+      thigh.position.y = -0.48;
+      thigh.castShadow = true;
+      thigh.receiveShadow = true;
+      legGroup.add(thigh);
+
+      // Flared Muscular Calf Group (Signature Ben 10 comic curve)
+      const shinGroup = new THREE.Group();
+      shinGroup.position.set(0, -0.95, 0);
+      legGroup.add(shinGroup);
+
+      const shinGeo = new THREE.CylinderGeometry(0.24, 0.17, 1.0, 6);
+      shinGeo.scale(1.08, 1, 1.3);
+      const shin = new THREE.Mesh(shinGeo, suitMat);
+      shin.position.set(0, -0.5, -0.04); // Arch backward slightly
+      shin.rotation.x = 0.08;
+      shin.castShadow = true;
+      shin.receiveShadow = true;
+      shinGroup.add(shin);
+
+      // Stylized Comic Boot with Ankle Cuff Guard
+      const bootGroup = new THREE.Group();
+      bootGroup.position.set(0, -1.02, 0);
+      shinGroup.add(bootGroup);
+
+      // Ankle cuff rim
+      const cuffGeo = new THREE.CylinderGeometry(0.22, 0.2, 0.18, 6);
+      const cuff = new THREE.Mesh(cuffGeo, suitMat);
+      cuff.position.y = 0.08;
+      cuff.castShadow = true;
+      bootGroup.add(cuff);
+
+      // Boot foot body
+      const footGeo = new THREE.BoxGeometry(0.3, 0.22, 0.68);
+      const foot = new THREE.Mesh(footGeo, suitMat);
+      foot.position.set(0, -0.02, 0.18);
+      foot.castShadow = true;
+      bootGroup.add(foot);
+
+      // Pointed Comic Toe Box
+      const toeGeo = new THREE.ConeGeometry(0.19, 0.32, 4);
+      toeGeo.scale(1, 0.65, 1);
+      const toe = new THREE.Mesh(toeGeo, suitMat);
+      toe.rotation.x = Math.PI / 2;
+      toe.position.set(0, -0.04, 0.54);
+      toe.castShadow = true;
+      bootGroup.add(toe);
+
+      return { legGroup, shinGroup };
+    }
+
+    const rightLeg = buildLeg(true);
+    const leftLeg = buildLeg(false);
+    lowerBody.add(rightLeg.legGroup);
+    lowerBody.add(leftLeg.legGroup);
+
+    /* =========================================================================
+       ACTION EFFECTS & GEOMETRY
+       ========================================================================= */
+
+    // 1. Crystal Eruption Spikes (Ground Slam attack)
+    const eruptionGroup = new THREE.Group();
+    scene.add(eruptionGroup);
+    const eruptionSpikes = [];
+
+    const spikeGeoMaster = new THREE.CylinderGeometry(0.01, 0.32, 1, 6);
+    spikeGeoMaster.translate(0, 0.5, 0);
+
+    for (let i = 0; i < 36; i++) {
+      const spike = createFacetMesh(spikeGeoMaster, crystalMaterial);
+      const forwardDist = 1.0 + (i / 36) * 7.5;
+      const spread = (Math.random() - 0.5) * (1.2 + forwardDist * 0.45);
+      const targetHeight = 1.2 + Math.random() * 2.8 * (1 - forwardDist / 12);
+      
+      spike.position.set(spread, 0, forwardDist);
+      spike.rotation.x = 0.25 + Math.random() * 0.45;
+      spike.rotation.z = (Math.random() - 0.5) * 0.6;
+      spike.rotation.y = Math.random() * Math.PI;
+      spike.scale.set(0.001, 0.001, 0.001);
+      spike.visible = false;
+      spike.castShadow = true;
+
+      eruptionGroup.add(spike);
+      eruptionSpikes.push({
+        mesh: spike,
+        maxHeight: targetHeight,
+        delay: (forwardDist / 8.0) * 0.35,
+        growTimer: 0,
+        active: false
+      });
+    }
+
+    // 2. Crystal Barrier / Shield (Translucent Faceted Geode Dome)
+    const shieldGeo = new THREE.IcosahedronGeometry(2.4, 1);
+    const shieldMat = new THREE.MeshPhysicalMaterial({
+      color: 0x48dba0,
+      emissive: 0x011a10,
+      roughness: 0.15,
+      metalness: 0.1,
+      transmission: 0.4,
+      ior: 1.5,
+      transparent: true,
+      opacity: 0.8,
+      flatShading: true,
+      side: THREE.DoubleSide
+    });
+    const shieldDome = new THREE.Mesh(shieldGeo, shieldMat);
+    shieldDome.position.y = 2.4;
+    shieldDome.scale.set(0.001, 0.001, 0.001);
+    shieldDome.visible = false;
+    scene.add(shieldDome);
+
+    // 3. Shard Projectiles
+    const projectileGroup = new THREE.Group();
+    scene.add(projectileGroup);
+    const shards = [];
+    const shardProjGeo = new THREE.CylinderGeometry(0.02, 0.09, 0.8, 5);
+    shardProjGeo.rotateX(Math.PI / 2);
+
+    for (let s = 0; s < 16; s++) {
+      const shardMesh = new THREE.Mesh(shardProjGeo, crystalMaterial);
+      shardMesh.visible = false;
+      projectileGroup.add(shardMesh);
+      shards.push({
+        mesh: shardMesh,
+        active: false,
+        vel: new THREE.Vector3(),
+        life: 0
+      });
+    }
+
+    function fireShard(origin, target) {
+      const freeShard = shards.find(s => !s.active);
+      if (!freeShard) return;
+      freeShard.active = true;
+      freeShard.life = 1.0;
+      freeShard.mesh.position.copy(origin);
+      freeShard.mesh.visible = true;
+      
+      const dir = new THREE.Vector3().subVectors(target, origin).normalize();
+      dir.x += (Math.random() - 0.5) * 0.15;
+      dir.y += (Math.random() - 0.5) * 0.15;
+      freeShard.vel.copy(dir).multiplyScalar(18 + Math.random() * 6);
+      freeShard.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+    }
+
+    /* =========================================================================
+       ANIMATION CONTROLLER & STATE MACHINE
+       ========================================================================= */
+    const STATES = {
+      IDLE: 'idle',
+      ERUPTION: 'eruption',
+      BLADES: 'blades',
+      BARRAGE: 'barrage',
+      SHIELD: 'shield'
+    };
+
+    let currentState = STATES.IDLE;
+    let stateTime = 0;
+    let cameraMode = 'front';
+    let bladeMorphT = 0;
+    let shieldT = 0;
+
+    function resetLimbRotations() {
+      torsoGroup.position.set(0, 2.7, 0);
+      torsoGroup.rotation.set(0, 0, 0);
+      headGroup.rotation.set(0, 0, 0);
+      diamondhead.position.set(0, 0, 0);
+      diamondhead.rotation.set(0, 0, 0);
+
+      rightArm.armGroup.rotation.set(0.1, 0, 0.2);
+      rightArm.upperArmGroup.rotation.set(0, 0, 0);
+      rightArm.forearmGroup.rotation.set(0.2, 0, 0);
+      
+      leftArm.armGroup.rotation.set(0.1, 0, -0.2);
+      leftArm.upperArmGroup.rotation.set(0, 0, 0);
+      leftArm.forearmGroup.rotation.set(0.2, 0, 0);
+
+      rightLeg.legGroup.rotation.set(-0.1, 0, 0.1);
+      rightLeg.shinGroup.rotation.set(0.1, 0, 0);
+      leftLeg.legGroup.rotation.set(-0.1, 0, -0.1);
+      leftLeg.shinGroup.rotation.set(0.1, 0, 0);
+    }
+    resetLimbRotations();
+
+    const flashEl = document.getElementById('impact-flash');
+    function triggerFlash(intensity = 0.4) {
+      flashEl.style.opacity = intensity;
+      setTimeout(() => {
+        flashEl.style.opacity = 0;
+      }, 90);
+    }
+
+    let shakeDuration = 0;
+    let shakeIntensity = 0;
+    function triggerShake(duration = 0.4, intensity = 0.25) {
+      shakeDuration = duration;
+      shakeIntensity = intensity;
+    }
+
+    function setState(newState) {
+      currentState = newState;
+      stateTime = 0;
+
+      document.querySelectorAll('.action-btn').forEach(btn => btn.classList.remove('active'));
+      if (newState === STATES.IDLE) document.getElementById('btnIdle').classList.add('active');
+      if (newState === STATES.ERUPTION) document.getElementById('btnEruption').classList.add('active');
+      if (newState === STATES.BLADES) document.getElementById('btnBlades').classList.add('active');
+      if (newState === STATES.BARRAGE) document.getElementById('btnBarrage').classList.add('active');
+      if (newState === STATES.SHIELD) document.getElementById('btnShield').classList.add('active');
+
+      if (newState === STATES.ERUPTION) {
+        sounds.playCrystalChime();
+        eruptionSpikes.forEach(s => {
+          s.growTimer = 0;
+          s.active = false;
+          s.mesh.visible = false;
+          s.mesh.scale.set(0.001, 0.001, 0.001);
+        });
+      }
+
+      if (newState === STATES.BLADES) {
+        sounds.playBladeSheath();
+      }
+
+      if (newState === STATES.BARRAGE) {
+        sounds.playCrystalChime();
+      }
+
+      if (newState === STATES.SHIELD) {
+        shieldDome.visible = true;
+        sounds.playShieldHum();
+      }
+    }
+
+    /* =========================================================================
+       MAIN RENDER & ANIMATION LOOP
+       ========================================================================= */
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const elapsed = clock.getElapsedTime();
+      stateTime += delta;
+
+      // Animate ambient particles
+      particleGroup.children.forEach((p, idx) => {
+        const d = particleData[idx];
+        p.position.y = d.baseY + Math.sin(elapsed * d.speed + d.angle) * 0.4;
+        p.rotation.x += d.rotSpeed * delta;
+        p.rotation.y += d.rotSpeed * delta * 0.8;
+      });
+
+      // Animate Omnitrix subtle pulsing glow
+      const pulse = 0.5 + 0.2 * Math.sin(elapsed * 4.5);
+      omnitrixLight.intensity = pulse;
+
+      // Handle Blade Morphing Animation Interpolation
+      const targetBladeT = (currentState === STATES.BLADES) ? 1 : 0;
+      bladeMorphT += (targetBladeT - bladeMorphT) * Math.min(delta * 8, 1);
+
+      [rightArm, leftArm].forEach(arm => {
+        if (bladeMorphT > 0.01) {
+          arm.bladeGroup.visible = true;
+          arm.bladeGroup.scale.set(bladeMorphT, bladeMorphT, bladeMorphT);
+          arm.fingers.forEach(f => f.scale.set(1 - bladeMorphT, 1 - bladeMorphT, 1 - bladeMorphT));
+        } else {
+          arm.bladeGroup.visible = false;
+          arm.fingers.forEach(f => f.scale.set(1, 1, 1));
+        }
+      });
+
+      // Handle Shield Dome Animation Interpolation
+      const targetShieldT = (currentState === STATES.SHIELD) ? 1 : 0;
+      shieldT += (targetShieldT - shieldT) * Math.min(delta * 7, 1);
+      if (shieldT > 0.01) {
+        shieldDome.visible = true;
+        shieldDome.scale.set(shieldT, shieldT * 1.1, shieldT);
+        shieldDome.rotation.y += delta * 0.4;
+        shieldMat.opacity = shieldT * 0.8;
+      } else {
+        shieldDome.visible = false;
+      }
+
+      /* -----------------------------------------------------------------------
+         STATE BEHAVIORS
+         ----------------------------------------------------------------------- */
+      if (currentState === STATES.IDLE) {
+        const breath = Math.sin(elapsed * 1.8);
+        torsoGroup.position.y = 2.7 + breath * 0.035;
+        headGroup.rotation.y = Math.sin(elapsed * 0.9) * 0.08;
+        headGroup.rotation.x = Math.sin(elapsed * 1.4) * 0.04 - 0.05;
+
+        rightArm.armGroup.rotation.z = 0.25 + breath * 0.02;
+        rightArm.upperArmGroup.rotation.x = Math.sin(elapsed * 1.8) * 0.05;
+        leftArm.armGroup.rotation.z = -0.25 - breath * 0.02;
+        leftArm.upperArmGroup.rotation.x = Math.sin(elapsed * 1.8) * 0.05;
+
+        backSpikesGroup.rotation.x = breath * 0.03;
+      }
+      else if (currentState === STATES.ERUPTION) {
+        if (stateTime < 0.45) {
+          const windup = stateTime / 0.45;
+          torsoGroup.position.y = 2.7 - windup * 0.65;
+          torsoGroup.rotation.x = windup * 0.45;
+          headGroup.rotation.x = -windup * 0.35;
+
+          rightArm.armGroup.rotation.set(-windup * 0.8, 0, 0.4);
+          rightArm.upperArmGroup.rotation.set(-windup * 0.9, 0, 0);
+          leftArm.armGroup.rotation.set(windup * 0.3, 0, -0.4);
+
+          rightLeg.legGroup.rotation.set(-windup * 0.5, 0, 0.2);
+          rightLeg.shinGroup.rotation.set(windup * 0.8, 0, 0);
+          leftLeg.legGroup.rotation.set(-windup * 0.5, 0, -0.2);
+          leftLeg.shinGroup.rotation.set(windup * 0.8, 0, 0);
+        }
+        else if (stateTime < 0.55) {
+          torsoGroup.position.y = 1.85;
+          torsoGroup.rotation.x = 0.65;
+          rightArm.armGroup.rotation.set(1.1, 0, 0.15);
+          rightArm.upperArmGroup.rotation.set(0.4, 0, 0);
+
+          if (stateTime - delta < 0.45) {
+            sounds.playSlamImpact();
+            triggerFlash(0.5);
+            triggerShake(0.5, 0.35);
+          }
+        }
+        else if (stateTime < 3.2) {
+          const eruptionTime = stateTime - 0.55;
+
+          eruptionSpikes.forEach(s => {
+            if (eruptionTime > s.delay) {
+              s.mesh.visible = true;
+              s.growTimer += delta * 5.5;
+              const progress = Math.min(s.growTimer, 1);
+              const scaleY = Math.sin(progress * Math.PI * 0.5) * s.maxHeight;
+              const scaleXZ = Math.sin(progress * Math.PI * 0.5);
+              s.mesh.scale.set(scaleXZ, scaleY, scaleXZ);
+            }
+          });
+
+          headGroup.rotation.x = -0.4;
+        }
+        else if (stateTime < 4.2) {
+          const returnT = (stateTime - 3.2) / 1.0;
+          torsoGroup.position.y = 1.85 + returnT * 0.85;
+          torsoGroup.rotation.x = 0.65 * (1 - returnT);
+          rightArm.armGroup.rotation.x = 1.1 * (1 - returnT) + returnT * 0.1;
+          rightLeg.legGroup.rotation.x = -0.5 * (1 - returnT) - 0.1 * returnT;
+          rightLeg.shinGroup.rotation.x = 0.8 * (1 - returnT) + 0.1 * returnT;
+
+          eruptionSpikes.forEach(s => {
+            const shrink = Math.max(1 - returnT * 1.5, 0);
+            s.mesh.scale.multiplyScalar(shrink);
+            if (shrink <= 0.05) s.mesh.visible = false;
+          });
+        } else {
+          setState(STATES.IDLE);
+        }
+      }
+      else if (currentState === STATES.BLADES) {
+        const cycle = (stateTime * 2.8) % (Math.PI * 2);
+
+        torsoGroup.rotation.y = Math.sin(cycle) * 0.4;
+        torsoGroup.position.y = 2.7 + Math.abs(Math.sin(cycle)) * 0.1;
+
+        rightArm.armGroup.rotation.set(
+          Math.sin(cycle) * 0.9 + 0.2,
+          0.3,
+          0.3
+        );
+        rightArm.upperArmGroup.rotation.set(0.3, 0, Math.cos(cycle) * 0.5);
+
+        leftArm.armGroup.rotation.set(
+          -Math.sin(cycle) * 0.9 + 0.2,
+          -0.3,
+          -0.3
+        );
+        leftArm.upperArmGroup.rotation.set(0.3, 0, -Math.cos(cycle) * 0.5);
+
+        rightLeg.legGroup.rotation.x = -Math.sin(cycle) * 0.3 - 0.1;
+        leftLeg.legGroup.rotation.x = Math.sin(cycle) * 0.3 - 0.1;
+      }
+      else if (currentState === STATES.BARRAGE) {
+        torsoGroup.rotation.set(0.1, 0, 0);
+        rightArm.armGroup.rotation.set(1.45, 0, 0.15);
+        leftArm.armGroup.rotation.set(1.45, 0, -0.15);
+
+        const recoil = Math.sin(stateTime * 24);
+        rightArm.upperArmGroup.position.z = recoil * 0.08;
+        leftArm.upperArmGroup.position.z = -recoil * 0.08;
+
+        if (Math.random() < 0.32) {
+          const isR = Math.random() > 0.5;
+          const handPos = new THREE.Vector3();
+          (isR ? rightArm.handGroup : leftArm.handGroup).getWorldPosition(handPos);
+          
+          const target = new THREE.Vector3(
+            (Math.random() - 0.5) * 4,
+            2.0 + (Math.random() - 0.5) * 2,
+            12
+          );
+          fireShard(handPos, target);
+          sounds.playShardShot();
+        }
+
+        if (stateTime > 3.8) {
+          setState(STATES.IDLE);
+        }
+      }
+      else if (currentState === STATES.SHIELD) {
+        rightArm.armGroup.rotation.set(1.1, -0.4, 0.6);
+        leftArm.armGroup.rotation.set(1.1, 0.4, -0.6);
+        torsoGroup.position.y = 2.55;
+        headGroup.rotation.x = 0.1;
+
+        if (stateTime > 4.2) {
+          setState(STATES.IDLE);
+        }
+      }
+
+      // Update Active Shard Projectiles
+      shards.forEach(s => {
+        if (s.active) {
+          s.mesh.position.addScaledVector(s.vel, delta);
+          s.life -= delta * 1.5;
+          if (s.life <= 0 || s.mesh.position.z > 20) {
+            s.active = false;
+            s.mesh.visible = false;
+          }
+        }
+      });
+
+      // Camera Shake computation
+      if (shakeDuration > 0) {
+        shakeDuration -= delta;
+        const currentIntensity = (shakeDuration > 0) ? shakeIntensity * (shakeDuration / 0.5) : 0;
+        camera.position.x += (Math.random() - 0.5) * currentIntensity;
+        camera.position.y += (Math.random() - 0.5) * currentIntensity;
+      }
+
+      // Camera modes
+      if (cameraMode === 'front') {
+        camera.position.lerp(new THREE.Vector3(0, 3.2, 8.5), 0.04);
+        controls.target.lerp(new THREE.Vector3(0, 2.3, 0), 0.05);
+      } else if (cameraMode === 'back') {
+        camera.position.lerp(new THREE.Vector3(0, 3.2, -8.5), 0.04);
+        controls.target.lerp(new THREE.Vector3(0, 2.3, 0), 0.05);
+      } else if (cameraMode === 'action') {
+        camera.position.lerp(new THREE.Vector3(-4.5, 2.2, 5.5), 0.04);
+        controls.target.lerp(new THREE.Vector3(0, 2.2, 1.5), 0.05);
+      } else if (cameraMode === 'close') {
+        camera.position.lerp(new THREE.Vector3(0.2, 3.85, 2.2), 0.05);
+        controls.target.lerp(new THREE.Vector3(0, 3.85, 0.1), 0.05);
+      } else if (cameraMode === 'top') {
+        camera.position.lerp(new THREE.Vector3(0, 11, 3), 0.04);
+        controls.target.lerp(new THREE.Vector3(0, 1.5, 0), 0.05);
+      }
+
+      controls.update();
+      composer.render();
+    }
+
+    animate();
+
+    /* =========================================================================
+       EVENT LISTENERS & UI BINDINGS
+       ========================================================================= */
+    document.getElementById('btnIdle').addEventListener('click', () => setState(STATES.IDLE));
+    document.getElementById('btnEruption').addEventListener('click', () => setState(STATES.ERUPTION));
+    document.getElementById('btnBlades').addEventListener('click', () => setState(STATES.BLADES));
+    document.getElementById('btnBarrage').addEventListener('click', () => setState(STATES.BARRAGE));
+    document.getElementById('btnShield').addEventListener('click', () => setState(STATES.SHIELD));
+
+    // Omnitrix Badge interaction
+    document.getElementById('omnitrixLogo').addEventListener('click', () => {
+      sounds.playOmnitrixChirp();
+      triggerFlash(0.3);
+      const sequence = [STATES.IDLE, STATES.ERUPTION, STATES.BLADES, STATES.BARRAGE, STATES.SHIELD];
+      const next = sequence[(sequence.indexOf(currentState) + 1) % sequence.length];
+      setState(next);
+    });
+
+    // Camera preset buttons
+    document.getElementById('camFront').addEventListener('click', () => cameraMode = 'front');
+    document.getElementById('camBack').addEventListener('click', () => cameraMode = 'back');
+    document.getElementById('camAction').addEventListener('click', () => cameraMode = 'action');
+    document.getElementById('camClose').addEventListener('click', () => cameraMode = 'close');
+    document.getElementById('camTop').addEventListener('click', () => cameraMode = 'top');
+
+    // Audio Toggle
+    const audioToggle = document.getElementById('audioToggle');
+    audioToggle.addEventListener('click', () => {
+      sounds.enabled = !sounds.enabled;
+      audioToggle.innerHTML = sounds.enabled 
+        ? '<span id="audioIcon">🔊</span> SOUND ON' 
+        : '<span id="audioIcon">🔇</span> SOUND MUTED';
+      if (sounds.enabled) sounds.playOmnitrixChirp();
+    });
+
+    // Real-Time Brightness Slider
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    brightnessSlider.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      renderer.toneMappingExposure = val;
+    });
+
+    // Handle Window Resizing
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      composer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    window.addEventListener('pointerdown', () => sounds.init(), { once: true });
+  </script>
+</body>
+</html>
