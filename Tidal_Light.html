@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal Light</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1230; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  .hint {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    font: 15px/1.4 Georgia, "Times New Roman", serif; letter-spacing: .02em;
+    color: rgba(220, 230, 255, .7); pointer-events: none;
+    transition: opacity 1.5s ease;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint" id="hint">Move your pointer to steer the light. Click to release a burst.</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const hint = document.getElementById('hint');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let W, H, dpr, particles = [];
+  const mouse = { x: -9999, y: -9999, active: false };
+  const bursts = [];
+  let t = 0;
+
+  // Palette: bright cyan -> sky -> violet -> hot pink -> orange -> gold
+  const palette = [
+    [0, 255, 230], [60, 200, 255], [150, 130, 255],
+    [255, 80, 210], [255, 150, 60], [255, 230, 80]
+  ];
+  function colorAt(v) {
+    v = ((v % 1) + 1) % 1 * (palette.length - 1);
+    const i = Math.floor(v), f = v - i;
+    const a = palette[i], b = palette[Math.min(i + 1, palette.length - 1)];
+    return `${a[0] + (b[0]-a[0])*f | 0},${a[1] + (b[1]-a[1])*f | 0},${a[2] + (b[2]-a[2])*f | 0}`;
+  }
+
+  // Smooth pseudo-noise from layered sines (no library needed)
+  function field(x, y, time) {
+    const s = 0.0016;
+    return (
+      Math.sin(x * s * 1.3 + time * 0.35) +
+      Math.cos(y * s * 1.7 - time * 0.27) +
+      Math.sin((x + y) * s * 0.9 + time * 0.2) * 0.8 +
+      Math.cos(Math.hypot(x - W/2, y - H/2) * s * 1.4 - time * 0.4) * 0.6
+    ) * Math.PI * 0.9;
+  }
+
+  function spawn(p) {
+    p.x = Math.random() * W;
+    p.y = Math.random() * H;
+    p.vx = p.vy = 0;
+    p.life = 0;
+    p.max = 180 + Math.random() * 280;
+    p.hue = Math.random();
+    p.size = 0.6 + Math.random() * 1.4;
+    return p;
+  }
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0b1230';
+    ctx.fillRect(0, 0, W, H);
+    const count = Math.min(1800, Math.floor(W * H / 1100));
+    particles = Array.from({ length: count }, () => spawn({}));
+  }
+
+  function frame() {
+    t += 0.016;
+
+    // Fade the previous frame slightly to leave glowing trails
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(11, 18, 48, 0.06)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const p of particles) {
+      const angle = field(p.x, p.y, t);
+      p.vx += Math.cos(angle) * 0.07;
+      p.vy += Math.sin(angle) * 0.07;
+
+      if (mouse.active) {
+        const dx = mouse.x - p.x, dy = mouse.y - p.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < 220) {
+          const pull = (1 - d / 220) * 0.55;
+          // Orbit around the pointer rather than collapse into it
+          p.vx += (-dy / d) * pull + (dx / d) * pull * 0.15;
+          p.vy += ( dx / d) * pull + (dy / d) * pull * 0.15;
+        }
+      }
+
+      for (const b of bursts) {
+        const dx = p.x - b.x, dy = p.y - b.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const ring = Math.abs(d - b.r);
+        if (ring < 60) {
+          const push = (1 - ring / 60) * b.power;
+          p.vx += (dx / d) * push;
+          p.vy += (dy / d) * push;
+        }
+      }
+
+      p.vx *= 0.94; p.vy *= 0.94;
+      const px = p.x, py = p.y;
+      p.x += p.vx; p.y += p.vy;
+      p.life++;
+
+      const fade = Math.sin(Math.PI * Math.min(p.life / p.max, 1));
+      const speed = Math.min(Math.hypot(p.vx, p.vy) / 3, 1);
+      const col = colorAt(p.hue + t * 0.02 + p.x / W * 0.25);
+
+      ctx.strokeStyle = `rgba(${col},${Math.min((0.35 + speed * 0.75) * fade, 1)})`;
+      ctx.lineWidth = p.size * 1.3 + speed * 1.2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+
+      if (p.life > p.max || p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) spawn(p);
+    }
+
+    for (let i = bursts.length - 1; i >= 0; i--) {
+      const b = bursts[i];
+      b.r += 9; b.power *= 0.965;
+      if (b.power < 0.02) bursts.splice(i, 1);
+    }
+
+    if (!reduceMotion) requestAnimationFrame(frame);
+  }
+
+  function setPointer(e) {
+    const pt = e.touches ? e.touches[0] : e;
+    mouse.x = pt.clientX; mouse.y = pt.clientY; mouse.active = true;
+    hint.style.opacity = 0;
+  }
+
+  addEventListener('resize', resize);
+  canvas.addEventListener('pointermove', setPointer);
+  canvas.addEventListener('pointerleave', () => mouse.active = false);
+  canvas.addEventListener('pointerdown', e => {
+    setPointer(e);
+    bursts.push({ x: e.clientX, y: e.clientY, r: 0, power: 2.4 });
+  });
+
+  resize();
+  if (reduceMotion) {
+    // Render a still composition instead of continuous motion
+    for (let i = 0; i < 260; i++) { t += 0.016; frame(); }
+  } else {
+    frame();
+  }
+})();
+</script>
+</body>
+</html>
