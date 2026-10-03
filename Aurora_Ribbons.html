@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurora Ribbons</title>
+<style>
+  :root { --bg: #070a1a; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .title {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    pointer-events: none; text-align: center;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    color: #fff; mix-blend-mode: difference;
+  }
+  .title h1 {
+    font-size: clamp(2.5rem, 9vw, 7rem); font-weight: 200;
+    letter-spacing: .18em; animation: breathe 6s ease-in-out infinite;
+  }
+  .title p { margin-top: 1rem; font-size: .9rem; letter-spacing: .3em; opacity: .7; }
+  @keyframes breathe {
+    0%, 100% { letter-spacing: .18em; opacity: .85; }
+    50% { letter-spacing: .26em; opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { .title h1 { animation: none; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="title"><div><h1>AURORA</h1><p>move your mouse or finger</p></div></div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.width = innerWidth * dpr;
+  H = canvas.height = innerHeight * dpr;
+}
+addEventListener('resize', resize);
+resize();
+
+const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5 };
+function move(e) {
+  const p = e.touches ? e.touches[0] : e;
+  mouse.tx = p.clientX / innerWidth;
+  mouse.ty = p.clientY / innerHeight;
+}
+addEventListener('mousemove', move);
+addEventListener('touchmove', move, { passive: true });
+
+const RIBBONS = 7;
+const ribbons = Array.from({ length: RIBBONS }, (_, i) => ({
+  hue: 170 + i * 25,
+  offset: i * 0.9,
+  speed: 0.25 + i * 0.04,
+  amp: 0.10 + i * 0.015,
+}));
+
+function draw(t) {
+  t *= 0.001;
+  mouse.x += (mouse.tx - mouse.x) * 0.05;
+  mouse.y += (mouse.ty - mouse.y) * 0.05;
+
+  // fading trail
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(7,10,26,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.globalCompositeOperation = 'lighter';
+  ribbons.forEach(r => {
+    const grad = ctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, `hsla(${r.hue},90%,60%,0)`);
+    grad.addColorStop(0.5, `hsla(${r.hue + 40},95%,65%,0.55)`);
+    grad.addColorStop(1, `hsla(${r.hue + 80},90%,60%,0)`);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = (3 + mouse.y * 5) * dpr;
+    ctx.shadowBlur = 25 * dpr;
+    ctx.shadowColor = `hsl(${r.hue},100%,60%)`;
+
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += 12 * dpr) {
+      const nx = x / W;
+      const wave =
+        Math.sin(nx * 6 + t * r.speed * 3 + r.offset) * 0.5 +
+        Math.sin(nx * 11 - t * r.speed * 2 + r.offset * 2) * 0.25;
+      const pull = Math.exp(-Math.pow((nx - mouse.x) * 3, 2)) * (mouse.y - 0.5) * 0.4;
+      const y = H * (0.5 + wave * r.amp * 2.5 + pull);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
