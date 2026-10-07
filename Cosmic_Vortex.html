@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cosmic Vortex</title>
+<style>
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+  canvas { display: block; position: fixed; inset: 0; touch-action: none; }
+  #hint { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); text-align: center;
+    color: #fff; opacity: .6; font-size: 13px; letter-spacing: .15em; text-transform: uppercase; pointer-events: none; mix-blend-mode: difference; }
+</style>
+</head>
+<body>
+<div id="hint">Move to steer &bull; Click / tap to detonate</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x000000, 0.012);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+  camera.position.set(0, 6, 18);
+
+  // ---------- Galaxy vortex (GPU animated) ----------
+  const COUNT = 40000, ARMS = 5, RADIUS = 14;
+  const pos = new Float32Array(COUNT * 3), col = new Float32Array(COUNT * 3), rnd = new Float32Array(COUNT);
+  const inner = new THREE.Color(0xffa040), outer = new THREE.Color(0x4060ff), mag = new THREE.Color(0xff30c0);
+  for (let i = 0; i < COUNT; i++) {
+    const r = Math.pow(Math.random(), 1.6) * RADIUS;
+    const arm = (i % ARMS) / ARMS * Math.PI * 2;
+    const ang = arm + r * 0.55;
+    const spread = (Math.random() - 0.5) * (0.3 + r * 0.12);
+    pos[i*3]   = Math.cos(ang) * r + spread * (Math.random() - 0.5) * 3;
+    pos[i*3+1] = (Math.random() - 0.5) * 0.8 * (1.2 - r / RADIUS);
+    pos[i*3+2] = Math.sin(ang) * r + spread * (Math.random() - 0.5) * 3;
+    const c = inner.clone().lerp(outer, r / RADIUS);
+    if (Math.random() < 0.15) c.lerp(mag, 0.7);
+    col.set([c.r, c.g, c.b], i * 3);
+    rnd[i] = Math.random();
+  }
+  const gGeo = new THREE.BufferGeometry();
+  gGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  gGeo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
+  gGeo.setAttribute('aRand', new THREE.BufferAttribute(rnd, 1));
+  const gMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: { value: 0 }, uPulse: { value: 0 }, uSize: { value: 0.35 * renderer.getPixelRatio() } },
+    vertexShader: `
+      attribute vec3 aColor; attribute float aRand;
+      uniform float uTime, uPulse, uSize;
+      varying vec3 vColor;
+      void main() {
+        vec3 p = position;
+        float r = length(p.xz);
+        float a = uTime * 0.6 / (0.4 + r * 0.12);
+        float c = cos(a), s = sin(a);
+        p.xz = mat2(c, -s, s, c) * p.xz;
+        p.y += sin(r * 1.2 - uTime * 2.0 + aRand * 6.2831) * (0.35 + uPulse * 2.5);
+        p.xz *= 1.0 + uPulse * 0.6 * sin(r * 0.8 - uTime * 8.0);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = uSize * (0.4 + aRand) * (300.0 / -mv.z) * (1.0 + uPulse * 2.0);
+        gl_Position = projectionMatrix * mv;
+        vColor = aColor + vec3(uPulse * 0.6);
+      }`,
+    fragmentShader: `
+      varying vec3 vColor;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        gl_FragColor = vec4(vColor, smoothstep(0.5, 0.0, d));
+      }`
+  });
+  const galaxy = new THREE.Points(gGeo, gMat);
+  galaxy.rotation.x = 0.25;
+  scene.add(galaxy);
+
+  // ---------- Warp stars ----------
+  const STARS = 3000, sPos = new Float32Array(STARS * 3);
+  for (let i = 0; i < STARS; i++) {
+    sPos[i*3] = (Math.random() - 0.5) * 200;
+    sPos[i*3+1] = (Math.random() - 0.5) * 200;
+    sPos[i*3+2] = -Math.random() * 300 + 50;
+  }
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+  const stars = new THREE.Points(sGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.5, transparent: true, opacity: 0.8, depthWrite: false }));
+  scene.add(stars);
+
+  // ---------- Morphing wireframe knot ----------
+  const knot = new THREE.Mesh(
+    new THREE.TorusKnotGeometry(2.2, 0.55, 220, 24, 2, 3),
+    new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, transparent: true, opacity: 0.55 })
+  );
+  knot.position.y = 0.5;
+  scene.add(knot);
+
+  // ---------- Shockwave rings ----------
+  const rings = [];
+  function spawnRing() {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1, 96),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(Math.random(), 1, 0.6), side: THREE.DoubleSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    m.rotation.x = -Math.PI / 2 + 0.25;
+    m.position.y = 0.5;
+    scene.add(m); rings.push(m);
+  }
+
+  // ---------- Input ----------
+  const mouse = { x: 0, y: 0 };
+  let pulse = 0, hueShift = 0;
+  window.addEventListener('pointermove', e => {
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = (e.clientY / window.innerHeight) * 2 - 1;
+  });
+  window.addEventListener('pointerdown', () => {
+    pulse = 1; hueShift = Math.random();
+    for (let i = 0; i < 3; i++) setTimeout(spawnRing, i * 120);
+  });
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- Loop ----------
+  const clock = new THREE.Clock();
+  const target = new THREE.Vector3();
+  function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    pulse *= 0.95;
+    gMat.uniforms.uTime.value = t;
+    gMat.uniforms.uPulse.value = pulse;
+
+    // camera swoops + follows mouse
+    const orbit = t * 0.12;
+    target.set(Math.sin(orbit) * 4 + mouse.x * 10, 5 + Math.sin(t * 0.4) * 3 - mouse.y * 6, 18 + Math.cos(orbit) * 5 - pulse * 6);
+    camera.position.lerp(target, 0.04);
+    camera.lookAt(0, 0, 0);
+    camera.rotation.z += Math.sin(t * 0.5) * 0.002 + pulse * 0.01;
+
+    galaxy.rotation.y = t * 0.05;
+
+    // knot: spin, breathe, cycle hue
+    knot.rotation.x = t * 0.7; knot.rotation.y = t * 0.45;
+    const sc = 1 + Math.sin(t * 2) * 0.15 + pulse * 1.2;
+    knot.scale.setScalar(sc);
+    knot.material.color.setHSL((t * 0.08 + hueShift) % 1, 1, 0.6);
+
+    // warp stars rush toward camera
+    const p = sGeo.attributes.position.array, speed = 0.6 + pulse * 6;
+    for (let i = 0; i < STARS; i++) {
+      p[i*3+2] += speed;
+      if (p[i*3+2] > 60) p[i*3+2] = -240;
+    }
+    sGeo.attributes.position.needsUpdate = true;
+
+    // rings
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const r = rings[i];
+      r.scale.multiplyScalar(1.07);
+      r.material.opacity *= 0.965;
+      if (r.material.opacity < 0.01) { scene.remove(r); r.geometry.dispose(); r.material.dispose(); rings.splice(i, 1); }
+    }
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
