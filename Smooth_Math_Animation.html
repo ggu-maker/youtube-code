@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smooth Math Animation</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; font-family: system-ui, sans-serif; }
+  canvas { display: block; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px; color: #9fb4ff; font-size: 13px;
+    line-height: 1.5; pointer-events: none; text-shadow: 0 0 8px #000;
+  }
+  #hud b { color: #fff; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b>Morphing 3D Lissajous curve</b><br>
+  x = sin(3u + φ) &nbsp; y = sin(2u) &nbsp; z = sin(5u + φ/2)<br>
+  φ changes smoothly over time &middot; drag to rotate &middot; scroll to zoom
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  // ---------- Scene setup ----------
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x05060f, 0.12);
+
+  const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
+  camera.position.set(0, 0, 5);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearColor(0x05060f);
+  document.body.appendChild(renderer.domElement);
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  // ---------- Main curve ----------
+  const N = 2000;
+  const curvePos = new Float32Array((N + 1) * 3);
+  const curveCol = new Float32Array((N + 1) * 3);
+  const curveGeo = new THREE.BufferGeometry();
+  curveGeo.setAttribute('position', new THREE.BufferAttribute(curvePos, 3));
+  curveGeo.setAttribute('color', new THREE.BufferAttribute(curveCol, 3));
+  const curveMat = new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  const curve = new THREE.Line(curveGeo, curveMat);
+  group.add(curve);
+
+  // ---------- Glow points riding along the curve ----------
+  const DOTS = 6, TRAIL = 40;
+  const dotCount = DOTS * TRAIL;
+  const dotPos = new Float32Array(dotCount * 3);
+  const dotCol = new Float32Array(dotCount * 3);
+  const dotGeo = new THREE.BufferGeometry();
+  dotGeo.setAttribute('position', new THREE.BufferAttribute(dotPos, 3));
+  dotGeo.setAttribute('color', new THREE.BufferAttribute(dotCol, 3));
+  const dotMat = new THREE.PointsMaterial({
+    size: 0.07, vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  group.add(new THREE.Points(dotGeo, dotMat));
+
+  // ---------- Background stars ----------
+  const STARS = 800;
+  const starPos = new Float32Array(STARS * 3);
+  for (let i = 0; i < STARS; i++) {
+    const r = 6 + Math.random() * 14;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    starPos[i * 3]     = r * Math.sin(ph) * Math.cos(th);
+    starPos[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+    starPos[i * 3 + 2] = r * Math.cos(ph);
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    size: 0.03, color: 0x7788ff, transparent: true, opacity: 0.6, depthWrite: false
+  }));
+  scene.add(stars);
+
+  // ---------- Math ----------
+  const TAU = Math.PI * 2;
+  const A = 3, B = 2, C = 5; // integer frequencies keep the curve closed
+  const color = new THREE.Color();
+
+  function point(u, phi, out, i) {
+    out[i]     = Math.sin(A * u + phi) * 1.6;
+    out[i + 1] = Math.sin(B * u) * 1.6;
+    out[i + 2] = Math.sin(C * u + phi * 0.5) * 1.6;
+  }
+
+  function updateCurve(time) {
+    const phi = time * 0.5;
+    for (let k = 0; k <= N; k++) {
+      const u = (k / N) * TAU;
+      point(u, phi, curvePos, k * 3);
+      color.setHSL(((k / N) + time * 0.05) % 1, 0.9, 0.6);
+      curveCol[k * 3]     = color.r;
+      curveCol[k * 3 + 1] = color.g;
+      curveCol[k * 3 + 2] = color.b;
+    }
+    curveGeo.attributes.position.needsUpdate = true;
+    curveGeo.attributes.color.needsUpdate = true;
+    return phi;
+  }
+
+  function updateDots(time, phi) {
+    for (let d = 0; d < DOTS; d++) {
+      const base = time * 0.6 + (d / DOTS) * TAU;
+      for (let t = 0; t < TRAIL; t++) {
+        const idx = (d * TRAIL + t) * 3;
+        const u = base - t * 0.025;
+        point(u, phi, dotPos, idx);
+        const fade = 1 - t / TRAIL;
+        color.setHSL((d / DOTS + time * 0.05) % 1, 1, 0.55 + 0.25 * fade);
+        dotCol[idx]     = color.r * fade;
+        dotCol[idx + 1] = color.g * fade;
+        dotCol[idx + 2] = color.b * fade;
+      }
+    }
+    dotGeo.attributes.position.needsUpdate = true;
+    dotGeo.attributes.color.needsUpdate = true;
+  }
+
+  // ---------- Interaction (drag to rotate, wheel to zoom) ----------
+  let dragging = false, lastX = 0, lastY = 0;
+  let rotX = 0.3, rotY = 0, velX = 0, velY = 0.004;
+  let targetZoom = 5;
+
+  const el = renderer.domElement;
+  el.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; el.setPointerCapture(e.pointerId); });
+  el.addEventListener('pointerup',   e => { dragging = false; el.releasePointerCapture(e.pointerId); });
+  el.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    velY = (e.clientX - lastX) * 0.005;
+    velX = (e.clientY - lastY) * 0.005;
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  el.addEventListener('wheel', e => {
+    e.preventDefault();
+    targetZoom = Math.min(10, Math.max(2.5, targetZoom + e.deltaY * 0.004));
+  }, { passive: false });
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // ---------- Loop ----------
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const time = clock.getElapsedTime();
+
+    const phi = updateCurve(time);
+    updateDots(time, phi);
+
+    // inertia: keep drifting, ease back toward a gentle auto-spin
+    rotX += velX; rotY += velY;
+    velX *= 0.95;
+    velY += (0.004 - velY) * 0.02;
+    group.rotation.x = rotX + Math.sin(time * 0.3) * 0.15;
+    group.rotation.y = rotY;
+    stars.rotation.y = time * 0.01;
+
+    camera.position.z += (targetZoom - camera.position.z) * 0.08;
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
