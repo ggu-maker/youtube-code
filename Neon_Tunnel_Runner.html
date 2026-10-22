@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Neon Tunnel Runner</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #02020a; font-family: "Segoe UI", system-ui, sans-serif; color: #fff; touch-action: none; user-select: none; }
+  canvas { display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .stat { position: absolute; top: 14px; font-size: 18px; letter-spacing: 2px; text-shadow: 0 0 10px #0ff; }
+  #score { left: 18px; font-size: 28px; font-weight: 700; }
+  #best  { left: 18px; top: 52px; font-size: 13px; opacity: .7; }
+  #lives { right: 18px; font-size: 26px; text-shadow: 0 0 10px #f0a; }
+  #combo { left: 50%; top: 14px; transform: translateX(-50%); color: #ffd84a; text-shadow: 0 0 12px #fa0; font-weight: 700; }
+  #msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle, rgba(0,0,0,.35), rgba(0,0,0,.75)); pointer-events: auto; cursor: pointer; }
+  #msg h1 { font-size: clamp(32px, 8vw, 72px); margin: 0 0 8px; letter-spacing: 6px; background: linear-gradient(90deg, #0ff, #f0f, #ff0); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 16px #0ff8); }
+  #msg p { margin: 6px 0; opacity: .85; font-size: clamp(13px, 2.5vw, 18px); }
+  #msg .go { margin-top: 22px; padding: 10px 26px; border: 2px solid #0ff; border-radius: 30px; letter-spacing: 3px; animation: pulse 1.2s infinite alternate; }
+  @keyframes pulse { to { box-shadow: 0 0 24px #0ff; } }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="score" class="stat">0</div>
+  <div id="best" class="stat">BEST 0</div>
+  <div id="combo" class="stat"></div>
+  <div id="lives" class="stat">♥♥♥</div>
+  <div id="msg">
+    <h1 id="title">NEON RUNNER</h1>
+    <p id="sub">Grab the <b style="color:#ffd84a">golden orbs</b>, dodge the <b style="color:#ff3a6e">red crystals</b>.</p>
+    <p>Mouse / touch / arrow keys / WASD to steer</p>
+    <div class="go" id="go">CLICK or PRESS SPACE TO START</div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- Setup ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x02020a);
+scene.fog = new THREE.FogExp2(0x02020a, 0.016);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 0, 9);
+
+const BOUND = 4.2; // ship can move in -BOUND..BOUND on x and y
+
+// ---------- Tunnel rings ----------
+const rings = [];
+const RING_COUNT = 40, RING_GAP = 6;
+const ringGeo = new THREE.TorusGeometry(7, 0.07, 6, 8);
+for (let i = 0; i < RING_COUNT; i++) {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  m.position.z = 8 - i * RING_GAP;
+  m.rotation.z = Math.PI / 8;
+  scene.add(m);
+  rings.push(m);
+}
+
+// ---------- Stars ----------
+{
+  const N = 700, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const a = Math.random() * Math.PI * 2, r = 9 + Math.random() * 40;
+    pos[i * 3] = Math.cos(a) * r;
+    pos[i * 3 + 1] = Math.sin(a) * r;
+    pos[i * 3 + 2] = -Math.random() * 240;
+  }
+  var starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x9fdfff, size: 0.35, transparent: true, opacity: 0.8 }));
+  scene.add(stars);
+}
+
+// ---------- Ship ----------
+const ship = new THREE.Group();
+{
+  const body = new THREE.Mesh(
+    new THREE.ConeGeometry(0.45, 1.8, 4),
+    new THREE.MeshBasicMaterial({ color: 0x00f0ff })
+  );
+  body.rotation.x = -Math.PI / 2;
+  body.rotation.y = Math.PI / 4;
+  ship.add(body);
+
+  const wingMat = new THREE.MeshBasicMaterial({ color: 0xff2bd6 });
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.07, 0.7), wingMat);
+  wing.position.z = 0.5;
+  ship.add(wing);
+
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.5, 0.6), wingMat);
+  fin.position.set(0, 0.25, 0.6);
+  ship.add(fin);
+
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0x66ffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending })
+  );
+  glow.position.z = 1.05;
+  glow.name = 'glow';
+  ship.add(glow);
+}
+ship.position.set(0, 0, 0);
+scene.add(ship);
+
+// Engine trail particles
+const TRAIL = 60;
+const trailPos = new Float32Array(TRAIL * 3);
+const trailLife = new Float32Array(TRAIL);
+const trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+const trail = new THREE.Points(trailGeo, new THREE.PointsMaterial({
+  color: 0x66ffff, size: 0.25, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false
+}));
+trail.frustumCulled = false;
+scene.add(trail);
+let trailIdx = 0;
+
+// ---------- Burst particles (for pickups / hits) ----------
+const bursts = [];
+function burst(pos, color, count = 24) {
+  const g = new THREE.BufferGeometry();
+  const p = new Float32Array(count * 3);
+  const v = [];
+  for (let i = 0; i < count; i++) {
+    p[i * 3] = pos.x; p[i * 3 + 1] = pos.y; p[i * 3 + 2] = pos.z;
+    v.push(new THREE.Vector3((Math.random() - .5), (Math.random() - .5), (Math.random() - .5)).normalize().multiplyScalar(4 + Math.random() * 8));
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const m = new THREE.PointsMaterial({ color, size: 0.3, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false });
+  const pts = new THREE.Points(g, m);
+  pts.frustumCulled = false;
+  scene.add(pts);
+  bursts.push({ pts, v, life: 1 });
+}
+
+// ---------- Obstacles & orbs ----------
+const obstacles = [], orbs = [];
+const obsGeo = new THREE.OctahedronGeometry(1.1);
+const obsMat = new THREE.MeshBasicMaterial({ color: 0xff3a6e, wireframe: true });
+const obsCore = new THREE.MeshBasicMaterial({ color: 0x440016 });
+const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
+const orbMat = new THREE.MeshBasicMaterial({ color: 0xffd84a });
+const orbHaloGeo = new THREE.SphereGeometry(0.85, 16, 16);
+const orbHaloMat = new THREE.MeshBasicMaterial({ color: 0xffa500, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false });
+
+function spawnObstacle(x, y) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(obsGeo, obsMat));
+  const core = new THREE.Mesh(obsGeo, obsCore);
+  core.scale.setScalar(0.92);
+  g.add(core);
+  g.position.set(x, y, -150);
+  g.userData.spin = new THREE.Vector3(Math.random() * 2 + .5, Math.random() * 2 + .5, Math.random() * 2);
+  scene.add(g);
+  obstacles.push(g);
+}
+function spawnOrb(x, y, z = -150) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(orbGeo, orbMat));
+  g.add(new THREE.Mesh(orbHaloGeo, orbHaloMat));
+  g.position.set(x, y, z);
+  scene.add(g);
+  orbs.push(g);
+}
+const rnd = () => (Math.random() * 2 - 1) * BOUND;
+
+function spawnWave() {
+  const r = Math.random();
+  if (r < 0.45) {
+    // single or double obstacles
+    spawnObstacle(rnd(), rnd());
+    if (Math.random() < 0.5 + state.speed / 200) spawnObstacle(rnd(), rnd());
+  } else if (r < 0.8) {
+    // orb line
+    const x0 = rnd(), y0 = rnd(), dx = (Math.random() - .5) * 1.2, dy = (Math.random() - .5) * 1.2;
+    for (let i = 0; i < 5; i++) {
+      spawnOrb(THREE.MathUtils.clamp(x0 + dx * i, -BOUND, BOUND), THREE.MathUtils.clamp(y0 + dy * i, -BOUND, BOUND), -150 - i * 4);
+    }
+  } else {
+    // obstacle wall with a gap carrying an orb
+    const gx = Math.round(rnd() / 2) * 2, gy = Math.round(rnd() / 2) * 2;
+    for (let x = -4; x <= 4; x += 2) for (let y = -4; y <= 4; y += 2) {
+      if (Math.abs(x - gx) < 0.1 && Math.abs(y - gy) < 0.1) continue;
+      if (Math.random() < 0.55) spawnObstacle(x, y);
+    }
+    spawnOrb(gx, gy);
+  }
+}
+
+// ---------- State ----------
+const state = {
+  running: false, score: 0, lives: 3, speed: 32, combo: 0,
+  spawnTimer: 0, invuln: 0, shake: 0, time: 0, best: 0
+};
+try { state.best = +localStorage.getItem('neonRunnerBest') || 0; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+const hud = { score: $('score'), best: $('best'), lives: $('lives'), combo: $('combo'), msg: $('msg'), title: $('title'), sub: $('sub'), go: $('go') };
+hud.best.textContent = 'BEST ' + state.best;
+
+function updateHud() {
+  hud.score.textContent = Math.floor(state.score);
+  hud.lives.textContent = '♥'.repeat(Math.max(state.lives, 0)) + '♡'.repeat(Math.max(3 - state.lives, 0));
+  hud.combo.textContent = state.combo >= 3 ? `COMBO x${1 + Math.floor(state.combo / 3)}` : '';
+}
+
+function startGame() {
+  obstacles.concat(orbs).forEach(o => scene.remove(o));
+  obstacles.length = 0; orbs.length = 0;
+  Object.assign(state, { running: true, score: 0, lives: 3, speed: 32, combo: 0, spawnTimer: 0.5, invuln: 0, shake: 0 });
+  target.set(0, 0);
+  ship.position.set(0, 0, 0);
+  hud.msg.classList.add('hidden');
+  updateHud();
+}
+
+function endGame() {
+  state.running = false;
+  if (state.score > state.best) {
+    state.best = Math.floor(state.score);
+    try { localStorage.setItem('neonRunnerBest', state.best); } catch (e) {}
+  }
+  hud.best.textContent = 'BEST ' + state.best;
+  hud.title.textContent = 'CRASHED!';
+  hud.sub.innerHTML = `Score: <b>${Math.floor(state.score)}</b> &nbsp;·&nbsp; Best: <b>${state.best}</b>`;
+  hud.go.textContent = 'CLICK or PRESS SPACE TO RETRY';
+  hud.msg.classList.remove('hidden');
+}
+
+// ---------- Input ----------
+const target = new THREE.Vector2(0, 0);
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space' && !state.running) { startGame(); e.preventDefault(); }
+  if (e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => keys[e.code] = false);
+
+function pointerMove(clientX, clientY) {
+  target.x = ((clientX / innerWidth) * 2 - 1) * BOUND;
+  target.y = -((clientY / innerHeight) * 2 - 1) * BOUND;
+}
+addEventListener('mousemove', e => pointerMove(e.clientX, e.clientY));
+addEventListener('touchstart', e => pointerMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+addEventListener('touchmove', e => pointerMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+hud.msg.addEventListener('click', () => { if (!state.running) startGame(); });
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- Main loop ----------
+const clock = new THREE.Clock();
+const tmp = new THREE.Vector3();
+
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  state.time += dt;
+  const t = state.time;
+
+  // Speed shown even on the title screen (gentle)
+  const speed = state.running ? state.speed : 14;
+
+  // Keyboard steering
+  const k = 9 * dt;
+  if (keys.ArrowLeft || keys.KeyA) target.x -= k;
+  if (keys.ArrowRight || keys.KeyD) target.x += k;
+  if (keys.ArrowUp || keys.KeyW) target.y += k;
+  if (keys.ArrowDown || keys.KeyS) target.y -= k;
+  target.x = THREE.MathUtils.clamp(target.x, -BOUND, BOUND);
+  target.y = THREE.MathUtils.clamp(target.y, -BOUND, BOUND);
+
+  // Ship movement
+  const px = ship.position.x, py = ship.position.y;
+  ship.position.x += (target.x - ship.position.x) * Math.min(1, 10 * dt);
+  ship.position.y += (target.y - ship.position.y) * Math.min(1, 10 * dt);
+  ship.rotation.z = THREE.MathUtils.lerp(ship.rotation.z, -(ship.position.x - px) * 8, 0.2);
+  ship.rotation.x = THREE.MathUtils.lerp(ship.rotation.x, (ship.position.y - py) * 6, 0.2);
+  const glow = ship.getObjectByName('glow');
+  glow.scale.setScalar(1 + Math.sin(t * 40) * 0.2);
+  // blink when invulnerable
+  ship.visible = state.invuln <= 0 || Math.floor(t * 14) % 2 === 0;
+
+  // Tunnel rings flow toward the camera
+  rings.forEach((r, i) => {
+    r.position.z += speed * dt;
+    if (r.position.z > 10) r.position.z -= RING_COUNT * RING_GAP;
+    r.material.color.setHSL((t * 0.08 - r.position.z * 0.004) % 1, 1, 0.55);
+    r.rotation.z += dt * 0.15 * (i % 2 ? 1 : -1);
+  });
+
+  // Stars
+  const sp = starGeo.attributes.position;
+  for (let i = 0; i < sp.count; i++) {
+    let z = sp.getZ(i) + speed * dt * 1.4;
+    if (z > 10) z -= 240;
+    sp.setZ(i, z);
+  }
+  sp.needsUpdate = true;
+
+  // Trail
+  trailLife[trailIdx] = 1;
+  trailPos[trailIdx * 3] = ship.position.x + (Math.random() - .5) * 0.15;
+  trailPos[trailIdx * 3 + 1] = ship.position.y + (Math.random() - .5) * 0.15;
+  trailPos[trailIdx * 3 + 2] = ship.position.z + 1.1;
+  trailIdx = (trailIdx + 1) % TRAIL;
+  for (let i = 0; i < TRAIL; i++) trailPos[i * 3 + 2] += speed * dt * 0.9;
+  trailGeo.attributes.position.needsUpdate = true;
+
+  if (state.running) {
+    state.score += dt * 10 * (1 + Math.floor(state.combo / 3));
+    state.speed = Math.min(85, 32 + state.score / 40);
+    state.invuln = Math.max(0, state.invuln - dt);
+
+    // Spawning (distance-based so it scales with speed)
+    state.spawnTimer -= dt;
+    if (state.spawnTimer <= 0) {
+      spawnWave();
+      state.spawnTimer = (1.0 + Math.random() * 0.6) * (32 / state.speed) * 1.6;
+    }
+
+    // Obstacles
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const o = obstacles[i];
+      o.position.z += speed * dt;
+      o.rotation.x += o.userData.spin.x * dt;
+      o.rotation.y += o.userData.spin.y * dt;
+      o.rotation.z += o.userData.spin.z * dt;
+      const dz = Math.abs(o.position.z - ship.position.z);
+      if (dz < 1.2 && state.invuln <= 0) {
+        const dx = o.position.x - ship.position.x, dy = o.position.y - ship.position.y;
+        if (dx * dx + dy * dy < 1.5) {
+          state.lives--;
+          state.combo = 0;
+          state.invuln = 1.6;
+          state.shake = 0.6;
+          burst(o.position, 0xff3a6e, 40);
+          scene.remove(o); obstacles.splice(i, 1);
+          updateHud();
+          if (state.lives <= 0) { endGame(); }
+          continue;
+        }
+      }
+      if (o.position.z > 12) { scene.remove(o); obstacles.splice(i, 1); }
+    }
+
+    // Orbs
+    for (let i = orbs.length - 1; i >= 0; i--) {
+      const o = orbs[i];
+      o.position.z += speed * dt;
+      o.scale.setScalar(1 + Math.sin(t * 8 + i) * 0.08);
+      const dx = o.position.x - ship.position.x, dy = o.position.y - ship.position.y, dz = o.position.z - ship.position.z;
+      if (dx * dx + dy * dy + dz * dz < 2.2) {
+        state.combo++;
+        state.score += 50 * (1 + Math.floor(state.combo / 3));
+        burst(o.position, 0xffd84a, 20);
+        scene.remove(o); orbs.splice(i, 1);
+        updateHud();
+        continue;
+      }
+      if (o.position.z > 12) {
+        state.combo = 0; // missed an orb breaks the combo
+        scene.remove(o); orbs.splice(i, 1);
+      }
+    }
+    updateHud();
+  } else {
+    // Title-screen drift so the scene feels alive
+    target.x = Math.sin(t * 0.8) * 2.5;
+    target.y = Math.cos(t * 1.1) * 1.8;
+  }
+
+  // Burst particles
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const b = bursts[i];
+    b.life -= dt * 1.6;
+    const p = b.pts.geometry.attributes.position;
+    for (let j = 0; j < b.v.length; j++) {
+      p.setXYZ(j, p.getX(j) + b.v[j].x * dt, p.getY(j) + b.v[j].y * dt, p.getZ(j) + b.v[j].z * dt + speed * dt);
+    }
+    p.needsUpdate = true;
+    b.pts.material.opacity = Math.max(b.life, 0);
+    if (b.life <= 0) { scene.remove(b.pts); b.pts.geometry.dispose(); b.pts.material.dispose(); bursts.splice(i, 1); }
+  }
+
+  // Camera: follows ship a little, widens FOV with speed, shakes on hit
+  state.shake = Math.max(0, state.shake - dt);
+  const sh = state.shake * 0.5;
+  camera.position.x = ship.position.x * 0.5 + (Math.random() - .5) * sh;
+  camera.position.y = ship.position.y * 0.5 + (Math.random() - .5) * sh;
+  camera.lookAt(ship.position.x * 0.2, ship.position.y * 0.2, -20);
+  camera.rotation.z += -ship.rotation.z * 0.15;
+  const fovTarget = 65 + (speed - 14) * 0.25;
+  camera.fov += (fovTarget - camera.fov) * 0.05;
+  camera.updateProjectionMatrix();
+
+  renderer.render(scene, camera);
+}
+loop();
+</script>
+</body>
+</html>
