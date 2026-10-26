@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lava</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0200; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .hint {
+    position: fixed; left: 0; right: 0; top: 14px; text-align: center;
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: rgba(255, 220, 180, 0.75); letter-spacing: 0.04em; pointer-events: none;
+    padding-top: env(safe-area-inset-top, 0px); text-shadow: 0 1px 6px #000;
+  }
+  .panel {
+    position: fixed; left: 14px; bottom: 14px; width: 210px; box-sizing: border-box;
+    padding: 12px 14px; border-radius: 12px;
+    background: rgba(20, 8, 4, 0.62); border: 1px solid rgba(255, 160, 80, 0.25);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    font: 12px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: #ffd9b8;
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .panel label { display: flex; justify-content: space-between; margin: 8px 0 3px; }
+  .panel input[type=range] { width: 100%; accent-color: #ff7a1a; margin: 0; }
+  .pal { display: flex; gap: 6px; margin-top: 10px; }
+  .pal button {
+    flex: 1; padding: 6px 0; border-radius: 8px; cursor: pointer; font: inherit; color: #ffd9b8;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 160, 80, 0.3);
+  }
+  .pal button.on { background: rgba(255, 122, 26, 0.35); border-color: #ff9a4a; color: #fff; }
+  .rain { width: 100%; margin-top: 8px; }
+  .rain.on { background: rgba(255, 122, 26, 0.35); border-color: #ff9a4a; color: #fff; }
+  button.rain {
+    padding: 6px 0; border-radius: 8px; cursor: pointer; font: inherit; color: #ffd9b8;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 160, 80, 0.3);
+  }
+</style>
+</head>
+<body>
+<div class="hint">Click for an eruption · drag to stir · hover to heat</div>
+<div class="panel">
+  <label><span>Flow speed</span><span id="vSpeed">1.0</span></label>
+  <input id="speed" type="range" min="0" max="3" step="0.1" value="1">
+  <label><span>Temperature</span><span id="vTemp">1.0</span></label>
+  <input id="temp" type="range" min="0.5" max="1.8" step="0.05" value="1">
+  <div class="pal">
+    <button data-p="0" class="on">Lava</button>
+    <button data-p="1">Toxic</button>
+    <button data-p="2">Plasma</button>
+  </div>
+  <button class="rain" id="rain">Meteor shower: off</button>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var renderer = new THREE.WebGLRenderer({ antialias: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.prepend(renderer.domElement);
+  var canvas = renderer.domElement;
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  var NR = 6;
+  var rips = [];
+  for (var k = 0; k < NR; k++) rips.push(new THREE.Vector3(0, 0, -100));
+  var ripIdx = 0;
+
+  var uniforms = {
+    uTime: { value: 0 },
+    uAspect: { value: window.innerWidth / window.innerHeight },
+    uMouse: { value: new THREE.Vector2(-10, -10) },
+    uHeat: { value: 0 },
+    uTemp: { value: 1 },
+    uPal: { value: 0 },
+    uRip: { value: rips }
+  };
+
+  var lavaMat = new THREE.ShaderMaterial({
+    uniforms: uniforms,
+    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: [
+      "precision highp float;",
+      "varying vec2 vUv;",
+      "uniform float uTime, uAspect, uHeat, uTemp, uPal;",
+      "uniform vec2 uMouse;",
+      "uniform vec3 uRip[6];",
+      "float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }",
+      "float noise(vec2 p){",
+      "  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);",
+      "  return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);",
+      "}",
+      "float fbm(vec2 p){",
+      "  float v = 0.0, a = 0.5;",
+      "  mat2 m = mat2(1.6, 1.2, -1.2, 1.6);",
+      "  for(int i=0;i<5;i++){ v += a*noise(p); p = m*p; a *= 0.5; }",
+      "  return v;",
+      "}",
+      "vec3 ramp(float h){",
+      "  vec3 c = vec3(0.04, 0.01, 0.01);",
+      "  c = mix(c, vec3(0.45, 0.04, 0.0), smoothstep(0.05, 0.35, h));",
+      "  c = mix(c, vec3(1.0, 0.30, 0.02), smoothstep(0.30, 0.65, h));",
+      "  c = mix(c, vec3(1.0, 0.75, 0.15), smoothstep(0.60, 0.88, h));",
+      "  c = mix(c, vec3(1.0, 0.97, 0.80), smoothstep(0.88, 1.10, h));",
+      "  return c;",
+      "}",
+      "void main(){",
+      "  vec2 uv = vUv; vec2 p = (uv - 0.5) * vec2(uAspect, 1.0) * 3.2;",
+      "  float t = uTime * 0.25;",
+      "  float ripH = 0.0; vec2 push = vec2(0.0);",
+      "  for(int i=0;i<6;i++){",
+      "    vec2 d = (uv - uRip[i].xy) * vec2(uAspect, 1.0);",
+      "    float age = uTime - uRip[i].z; float L = length(d);",
+      "    float ring = exp(-pow((L - age*0.45)*10.0, 2.0)) * exp(-age*1.3);",
+      "    ripH += ring * 0.9 + exp(-L*L*40.0) * exp(-age*2.5) * 0.9;",
+      "    push += normalize(d + 1e-4) * ring * 0.25;",
+      "  }",
+      "  p += push * 3.0;",
+      "  vec2 q = vec2(fbm(p + vec2(0.0, t)), fbm(p + vec2(5.2, 1.3) - t*0.8));",
+      "  vec2 r = vec2(fbm(p + 3.5*q + vec2(1.7, 9.2) + 0.6*t), fbm(p + 3.5*q + vec2(8.3, 2.8) - 0.5*t));",
+      "  float f = fbm(p + 3.5*r);",
+      "  float ridge = 1.0 - abs(2.0*f - 1.0);",
+      "  float heat = pow(ridge, 3.2);",
+      "  heat += 0.25 * smoothstep(0.4, 0.9, q.x) * (0.5 + 0.5*sin(uTime*0.8 + p.x*2.0));",
+      "  vec2 md = (uv - uMouse) * vec2(uAspect, 1.0);",
+      "  heat += uHeat * 0.9 * exp(-dot(md, md) * 14.0);",
+      "  heat += ripH;",
+      "  heat *= uTemp;",
+      "  vec3 col = ramp(heat);",
+      "  col += vec3(0.35, 0.08, 0.0) * pow(heat, 2.0) * 0.8;",
+      "  if(uPal > 1.5) col = col.bgr; else if(uPal > 0.5) col = col.grb;",
+      "  float vig = smoothstep(1.2, 0.2, length((uv - 0.5) * vec2(uAspect*0.8, 1.0)));",
+      "  col *= mix(0.55, 1.1, vig);",
+      "  col = pow(col, vec3(0.92));",
+      "  gl_FragColor = vec4(col, 1.0);",
+      "}"
+    ].join("\n"),
+    depthTest: false
+  });
+  scene.add(new THREE.Mesh(new THREE.PlaneBufferGeometry(2, 2), lavaMat));
+
+  // Particles: first NA are ambient embers, the rest are burst sparks
+  var NA = 160, NB = 400, N = NA + NB;
+  var pos = new Float32Array(N * 3);
+  var sizes = new Float32Array(N);
+  var seed = [];
+  var vx = new Float32Array(N), vy = new Float32Array(N), life = new Float32Array(N), base = new Float32Array(N);
+  function resetEmber(i, initial) {
+    pos[i*3] = Math.random() * 2 - 1;
+    pos[i*3+1] = initial ? Math.random() * 2 - 1 : -1.05;
+    sizes[i] = 2 + Math.random() * 5;
+    seed[i] = { v: 0.08 + Math.random() * 0.22, ph: Math.random() * 6.28, amp: 0.02 + Math.random() * 0.05 };
+  }
+  for (var i = 0; i < NA; i++) resetEmber(i, true);
+  for (var j = NA; j < N; j++) { pos[j*3+1] = -5; sizes[j] = 0; }
+
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+  var emberMat = new THREE.ShaderMaterial({
+    uniforms: { uPR: { value: renderer.getPixelRatio() }, uPal: uniforms.uPal },
+    vertexShader: "attribute float size; uniform float uPR; varying float vY; void main(){ vY = position.y; gl_PointSize = size * uPR; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: "precision highp float; uniform float uPal; varying float vY; void main(){ float d = length(gl_PointCoord - 0.5); if(d > 0.5) discard; float a = smoothstep(0.5, 0.0, d) * smoothstep(1.3, 0.3, vY); vec3 c = vec3(1.0, 0.65, 0.2); if(uPal > 1.5) c = c.bgr; else if(uPal > 0.5) c = c.grb; gl_FragColor = vec4(c, a); }",
+    transparent: true, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false
+  });
+  scene.add(new THREE.Points(geo, emberMat));
+
+  var burstCursor = NA;
+  function burst(x, y, count, power) {
+    for (var n = 0; n < count; n++) {
+      var i = burstCursor++; if (burstCursor >= N) burstCursor = NA;
+      var ang = Math.random() * Math.PI * 2, sp = (0.2 + Math.random() * 0.8) * power;
+      pos[i*3] = x; pos[i*3+1] = y;
+      vx[i] = Math.cos(ang) * sp * 0.7;
+      vy[i] = Math.abs(Math.sin(ang)) * sp + 0.2;
+      life[i] = 0.8 + Math.random() * 1.4;
+      base[i] = 3 + Math.random() * 6;
+    }
+  }
+
+  var uptime = function () { return uniforms.uTime.value; };
+  function eruption(ux, uy, power) {
+    var r = rips[ripIdx]; ripIdx = (ripIdx + 1) % NR;
+    r.set(ux, uy, uptime());
+    burst(ux * 2 - 1, uy * 2 - 1, Math.round(50 * power), 1.1 * power);
+  }
+
+  // Interaction
+  var targetHeat = 0, down = false, lastStir = 0, idle = 0;
+  function toUV(e) {
+    var rc = canvas.getBoundingClientRect();
+    return [(e.clientX - rc.left) / rc.width, 1 - (e.clientY - rc.top) / rc.height];
+  }
+  canvas.addEventListener("pointerdown", function (e) {
+    down = true; idle = 0;
+    var u = toUV(e);
+    uniforms.uMouse.value.set(u[0], u[1]); targetHeat = 1.4;
+    eruption(u[0], u[1], 1);
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    idle = 0;
+    var u = toUV(e);
+    uniforms.uMouse.value.set(u[0], u[1]);
+    targetHeat = down ? 1.4 : 1;
+    if (down && uptime() - lastStir > 0.07) {
+      lastStir = uptime();
+      burst(u[0] * 2 - 1, u[1] * 2 - 1, 6, 0.6);
+      if (Math.random() < 0.25) eruption(u[0], u[1], 0.4);
+    }
+  });
+  window.addEventListener("pointerup", function () { down = false; });
+  canvas.addEventListener("pointerleave", function () { targetHeat = 0; });
+
+  // Controls
+  var speed = 1;
+  document.getElementById("speed").addEventListener("input", function (e) {
+    speed = parseFloat(e.target.value); document.getElementById("vSpeed").textContent = speed.toFixed(1);
+  });
+  document.getElementById("temp").addEventListener("input", function (e) {
+    uniforms.uTemp.value = parseFloat(e.target.value); document.getElementById("vTemp").textContent = parseFloat(e.target.value).toFixed(1);
+  });
+  var pbtns = document.querySelectorAll(".pal button");
+  pbtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      pbtns.forEach(function (x) { x.classList.remove("on"); });
+      b.classList.add("on"); uniforms.uPal.value = parseFloat(b.dataset.p);
+    });
+  });
+  var meteors = false, nextMeteor = 0;
+  var rainBtn = document.getElementById("rain");
+  rainBtn.addEventListener("click", function () {
+    meteors = !meteors; rainBtn.classList.toggle("on", meteors);
+    rainBtn.textContent = "Meteor shower: " + (meteors ? "on" : "off");
+  });
+
+  window.addEventListener("resize", function () {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    uniforms.uAspect.value = window.innerWidth / window.innerHeight;
+  });
+
+  var clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    var dt = Math.min(clock.getDelta(), 0.05);
+    uniforms.uTime.value += dt * Math.max(speed, 0.0001);
+    idle += dt;
+    if (idle > 3) targetHeat *= 0.97;
+    uniforms.uHeat.value += (targetHeat - uniforms.uHeat.value) * 0.08;
+
+    var T = uniforms.uTime.value;
+    if (meteors && T > nextMeteor) {
+      nextMeteor = T + 0.5 + Math.random() * 1.0;
+      eruption(0.08 + Math.random() * 0.84, 0.08 + Math.random() * 0.84, 0.9);
+    }
+
+    for (var i = 0; i < NA; i++) {
+      var s = seed[i];
+      pos[i*3+1] += s.v * dt * speed;
+      pos[i*3] += Math.sin(T * 1.5 + s.ph) * s.amp * dt;
+      if (pos[i*3+1] > 1.05) resetEmber(i, false);
+    }
+    for (var b = NA; b < N; b++) {
+      if (life[b] > 0) {
+        life[b] -= dt;
+        vy[b] -= 0.9 * dt;
+        pos[b*3] += vx[b] * dt; pos[b*3+1] += vy[b] * dt;
+        sizes[b] = life[b] > 0 ? base[b] * Math.min(1, life[b]) : 0;
+        if (life[b] <= 0) pos[b*3+1] = -5;
+      }
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.attributes.size.needsUpdate = true;
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
