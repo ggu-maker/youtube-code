@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pendulum Wave</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; }
+  canvas { display: block; }
+  #hint { position: fixed; bottom: 18px; left: 0; right: 0; text-align: center; color: #7f8da3;
+          font: 14px Georgia, serif; pointer-events: none; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="hint">24 pendulums, each slightly out of step. Every 50 seconds they line up again.<br>Click to switch between swinging and spiralling. Move the mouse to look around.</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const NB = 24, TR = 140, CYC = 50, AMP = 0.5, TOP = 4, SP = 0.75, L0 = 5;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07090d);
+scene.fog = new THREE.Fog(0x07090d, 12, 30);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, .5));
+const pl = new THREE.PointLight(0xffffff, 1.3); pl.position.set(0, 6, 8); scene.add(pl);
+
+// beam
+const beam = new THREE.Mesh(new THREE.BoxGeometry(NB * SP + 1, .15, .3),
+  new THREE.MeshStandardMaterial({ color: 0x3a424e, roughness: .6, metalness: .4 }));
+beam.position.y = TOP; scene.add(beam);
+
+// glow sprite texture
+const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+const cx = cv.getContext('2d'), gr = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
+gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.3, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+cx.fillStyle = gr; cx.fillRect(0, 0, 64, 64);
+const glowTex = new THREE.CanvasTexture(cv);
+
+// pendulums
+const P = [];
+for (let i = 0; i < NB; i++) {
+  const N = 25 + i, color = new THREE.Color().setHSL(.52 + i / NB * .5, .85, .6);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(.2, 24, 16),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .5, metalness: .4, roughness: .25 }));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+  glow.scale.set(1.3, 1.3, 1);
+  scene.add(ball, glow);
+
+  const pos = new Float32Array(TR * 3), col = new Float32Array(TR * 3);
+  for (let j = 0; j < TR; j++) { const f = Math.pow(j / TR, 2.2); col.set([color.r * f, color.g * f, color.b * f], j * 3); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const trail = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true }));
+  trail.frustumCulled = false; scene.add(trail);
+
+  P.push({ ball, glow, pos, g, x: (i - (NB - 1) / 2) * SP, L: L0 * Math.pow(25 / N, 2), w: 2 * Math.PI * N / CYC, init: false });
+}
+
+// strings and the wave curve through the balls
+const sGeo = new THREE.BufferGeometry();
+sGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NB * 6), 3));
+scene.add(new THREE.LineSegments(sGeo, new THREE.LineBasicMaterial({ color: 0x8895aa, transparent: true, opacity: .35 })));
+const wGeo = new THREE.BufferGeometry();
+wGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NB * 3), 3));
+scene.add(new THREE.Line(wGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: .5 })));
+
+// interaction
+let spiral = 0, circ = 0, mx = 0, my = 0, cam = { a: 0, h: 0 };
+addEventListener('pointerdown', () => { spiral = 1 - spiral; });
+addEventListener('pointermove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+const clock = new THREE.Clock();
+(function loop() {
+  const t = clock.getElapsedTime();
+  circ += (spiral - circ) * .03;
+  const sp = sGeo.attributes.position.array, wp = wGeo.attributes.position.array;
+
+  P.forEach((p, i) => {
+    const ph = p.w * t, r = p.L * Math.sin(AMP);
+    const dz = r * Math.sin(ph), dx = r * Math.cos(ph) * circ;               // a swing becomes a circle when circ = 1
+    const y = TOP - Math.sqrt(p.L * p.L - dx * dx - dz * dz), x = p.x + dx;
+    p.ball.position.set(x, y, dz); p.glow.position.set(x, y, dz);
+
+    sp.set([p.x, TOP, 0, x, y, dz], i * 6);
+    wp.set([x, y, dz], i * 3);
+
+    if (!p.init) { for (let j = 0; j < TR; j++) p.pos.set([x, y, dz], j * 3); p.init = true; }
+    p.pos.copyWithin(0, 3); p.pos.set([x, y, dz], (TR - 1) * 3);
+    p.g.attributes.position.needsUpdate = true;
+  });
+  sGeo.attributes.position.needsUpdate = true;
+  wGeo.attributes.position.needsUpdate = true;
+
+  cam.a += (mx * 1.6 - cam.a) * .05; cam.h += (my * 4 - cam.h) * .05;
+  camera.position.set(Math.sin(cam.a) * 13, 1 - cam.h, Math.cos(cam.a) * 13);
+  camera.lookAt(0, 1.2, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
