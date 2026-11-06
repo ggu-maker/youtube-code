@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Number Warp</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #03040a; touch-action: none; cursor: none; user-select: none; -webkit-user-select: none; }
+  canvas#scene { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; display: block; }
+  #hint {
+    position: fixed; top: 22px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.6); font: 500 13px/1.6 "Segoe UI", system-ui, sans-serif;
+    letter-spacing: .14em; text-transform: uppercase; text-align: center; pointer-events: none;
+    transition: opacity 1.2s ease;
+  }
+  #hint b { color: #fff; font-weight: 700; }
+  #cursor {
+    position: fixed; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px;
+    border-radius: 50%; border: 2px solid rgba(255,255,255,0.9);
+    box-shadow: 0 0 18px rgba(120,180,255,0.8), inset 0 0 12px rgba(120,180,255,0.5);
+    pointer-events: none; will-change: transform; z-index: 10;
+  }
+  #cursor::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+    border-radius: 50%; background: #fff;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="hint"><b>Move</b> to steer the tunnel &nbsp;·&nbsp; <b>Click</b> to count &nbsp;·&nbsp; <b>Hold</b> to charge, release to warp</div>
+<div id="cursor"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  // ================= Setup =================
+  const canvas = document.getElementById('scene');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const clearColor = new THREE.Color(0x03040a);
+  renderer.setClearColor(clearColor, 1);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.rotation.order = 'YXZ';
+  scene.add(camera);                       // so children can ride with the camera
+
+  const PR = () => renderer.getPixelRatio();
+  let counterBaseScale = 1;
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    counterBaseScale = Math.min(1, camera.aspect / 1.05);
+    tunnelMat.uniforms.uPR.value = PR();
+    sparkMat.uniforms.uPR.value = PR();
+  }
+
+  // ================= Digit atlas =================
+  function makeAtlas() {
+    const c = document.createElement('canvas');
+    c.width = 1280; c.height = 128;
+    const g = c.getContext('2d');
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '900 92px "Arial Black", Arial, sans-serif';
+    for (let i = 0; i < 10; i++) {
+      g.shadowColor = 'rgba(255,255,255,0.9)';
+      g.shadowBlur = 14;
+      g.fillStyle = '#fff';
+      g.fillText(String(i), i * 128 + 64, 68);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.minFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    return t;
+  }
+
+  // ================= Tunnel of flying digits (GPU instanced) =================
+  const M = 1700;          // number of digits
+  const RANGE = 420;       // tunnel length
+
+  const base = new THREE.PlaneBufferGeometry(1, 1);
+  const ig = new THREE.InstancedBufferGeometry();
+  ig.index = base.index;
+  ig.setAttribute('position', base.attributes.position);
+  ig.setAttribute('uv', base.attributes.uv);
+
+  const aData = new Float32Array(M * 3);   // angle, radius, start distance
+  const aMisc = new Float32Array(M * 3);   // digit, speed factor, seed
+  for (let i = 0; i < M; i++) {
+    aData[i*3]   = Math.random() * Math.PI * 2;
+    aData[i*3+1] = 14 + Math.pow(Math.random(), 0.7) * 58;
+    aData[i*3+2] = Math.random() * RANGE;
+    aMisc[i*3]   = Math.floor(Math.random() * 10);
+    aMisc[i*3+1] = 0.6 + Math.random() * 0.8;
+    aMisc[i*3+2] = Math.random();
+  }
+  ig.setAttribute('aData', new THREE.InstancedBufferAttribute(aData, 3));
+  ig.setAttribute('aMisc', new THREE.InstancedBufferAttribute(aMisc, 3));
+  ig.instanceCount = M;
+
+  const tunnelMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: {
+      uAtlas:  { value: makeAtlas() },
+      uTravel: { value: 0 },
+      uTime:   { value: 0 },
+      uTwist:  { value: 1 },
+      uBoost:  { value: 0 },
+      uRange:  { value: RANGE },
+      uBend:   { value: new THREE.Vector2(0, 0) },
+      uHue:    { value: 0 },
+      uPR:     { value: 1 }
+    },
+    vertexShader: `
+      attribute vec3 aData;
+      attribute vec3 aMisc;
+      uniform float uTravel, uTime, uTwist, uBoost, uRange, uHue;
+      uniform vec2 uBend;
+      varying vec2 vUv;
+      varying float vDigit, vAlpha;
+      varying vec3 vColor;
+
+      vec3 palette(float t) {
+        return vec3(0.5) + vec3(0.5) * cos(6.28318 * (vec3(1.0) * t + vec3(0.0, 0.33, 0.67)));
+      }
+
+      void main() {
+        float d = mod(aData.z - uTravel * aMisc.y, uRange);
+        float ang = aData.x + d * 0.0015 * uTwist + uTime * 0.12 * (aMisc.z - 0.5);
+        vec3 c = vec3(cos(ang) * aData.y, sin(ang) * aData.y, -d - 5.0);
+        float f = d / uRange;
+        c.xy += uBend * f * f * uRange * 0.5;
+
+        vec4 mv = modelViewMatrix * vec4(c, 1.0);
+        float sc = (2.4 + aMisc.z * 2.8) * (1.0 + uBoost * 0.22);
+        mv.xy += position.xy * sc;
+        gl_Position = projectionMatrix * mv;
+
+        vUv = uv;
+        vDigit = aMisc.x;
+        vAlpha = (1.0 - smoothstep(0.7, 1.0, f)) * smoothstep(0.0, 0.07, f);
+        vColor = palette(aMisc.x * 0.06 + f * 0.5 - uTime * 0.04 + uHue) * (1.0 + uBoost * 0.35);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uAtlas;
+      varying vec2 vUv;
+      varying float vDigit, vAlpha;
+      varying vec3 vColor;
+      void main() {
+        float a = texture2D(uAtlas, vec2((vDigit + vUv.x) / 10.0, vUv.y)).a;
+        gl_FragColor = vec4(vColor, a * vAlpha);
+      }
+    `
+  });
+  const tunnel = new THREE.Mesh(ig, tunnelMat);
+  tunnel.frustumCulled = false;
+  scene.add(tunnel);
+
+  // ================= Central counter =================
+  const cc = document.createElement('canvas');
+  cc.width = 1024; cc.height = 512;
+  const cctx = cc.getContext('2d');
+  const counterTex = new THREE.CanvasTexture(cc);
+  counterTex.minFilter = THREE.LinearFilter;
+  counterTex.generateMipmaps = false;
+
+  const counter = new THREE.Mesh(
+    new THREE.PlaneBufferGeometry(64, 32),
+    new THREE.MeshBasicMaterial({ map: counterTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+  );
+  counter.position.set(0, 0, -60);
+  camera.add(counter);
+
+  let hueShift = 0;
+  function drawCounter(value) {
+    const W = cc.width, H = cc.height;
+    cctx.clearRect(0, 0, W, H);
+    const txt = value.toLocaleString('en-US');
+    cctx.textAlign = 'center';
+    cctx.textBaseline = 'middle';
+    let fs = 340;
+    cctx.font = `900 ${fs}px "Arial Black", Arial, sans-serif`;
+    const mw = cctx.measureText(txt).width;
+    if (mw > W - 70) { fs = Math.floor(fs * (W - 70) / mw); cctx.font = `900 ${fs}px "Arial Black", Arial, sans-serif`; }
+
+    const c1 = new THREE.Color().setHSL((hueShift) % 1, 0.9, 0.62);
+    const c2 = new THREE.Color().setHSL((hueShift + 0.25) % 1, 0.9, 0.6);
+    const grad = cctx.createLinearGradient(0, H * 0.25, 0, H * 0.75);
+    grad.addColorStop(0, '#' + c1.getHexString());
+    grad.addColorStop(1, '#' + c2.getHexString());
+
+    cctx.shadowColor = '#' + c1.getHexString();
+    cctx.shadowBlur = 60;
+    cctx.fillStyle = grad;
+    cctx.fillText(txt, W / 2, H / 2 + fs * 0.04);
+    cctx.shadowBlur = 18;
+    cctx.lineWidth = 3;
+    cctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    cctx.strokeText(txt, W / 2, H / 2 + fs * 0.04);
+    counterTex.needsUpdate = true;
+  }
+
+  // ================= Shockwave rings =================
+  const rings = [];
+  const ringGeo = new THREE.RingGeometry(0.94, 1, 96);
+  for (let i = 0; i < 10; i++) {
+    const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    }));
+    m.position.set(0, 0, -59);
+    m.visible = false;
+    camera.add(m);
+    rings.push({ mesh: m, life: 0, max: 1, size: 60 });
+  }
+  let ringIdx = 0;
+  function shockwave(strength, hue) {
+    const r = rings[ringIdx++ % rings.length];
+    r.life = r.max = 0.7 + strength * 0.5;
+    r.size = 30 + strength * 45;
+    r.mesh.material.color.setHSL(hue % 1, 0.9, 0.62);
+    r.mesh.visible = true;
+  }
+
+  // ================= Sparks (cursor trail & bursts) =================
+  const S = 3200;
+  const sPos = new Float32Array(S * 3);
+  const sVel = new Float32Array(S * 3);
+  const sCol = new Float32Array(S * 4);
+  const sBase = new Float32Array(S * 3);
+  const sSize = new Float32Array(S);
+  const sSize0 = new Float32Array(S);
+  const sLife = new Float32Array(S);
+  const sMax = new Float32Array(S).fill(1);
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+  sGeo.setAttribute('aColor', new THREE.BufferAttribute(sCol, 4));
+  sGeo.setAttribute('aSize', new THREE.BufferAttribute(sSize, 1));
+  const sparkMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uPR: { value: 1 } },
+    vertexShader: `
+      attribute vec4 aColor;
+      attribute float aSize;
+      uniform float uPR;
+      varying vec4 vColor;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        vColor = aColor;
+        gl_PointSize = aSize * (300.0 / -mv.z) * uPR;
+      }
+    `,
+    fragmentShader: `
+      varying vec4 vColor;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float core = smoothstep(0.5, 0.0, d);
+        gl_FragColor = vec4(vColor.rgb * (0.6 + core), vColor.a * core);
+      }
+    `
+  });
+  const sparks = new THREE.Points(sGeo, sparkMat);
+  sparks.frustumCulled = false;
+  camera.add(sparks);
+
+  let sIdx = 0;
+  const tmpCol = new THREE.Color();
+  function emit(x, y, z, vx, vy, vz, life, size, hue) {
+    const i = sIdx++ % S;
+    sPos[i*3] = x; sPos[i*3+1] = y; sPos[i*3+2] = z;
+    sVel[i*3] = vx; sVel[i*3+1] = vy; sVel[i*3+2] = vz;
+    sLife[i] = sMax[i] = life;
+    sSize0[i] = size;
+    tmpCol.setHSL(((hue % 1) + 1) % 1, 0.9, 0.62);
+    sBase[i*3] = tmpCol.r; sBase[i*3+1] = tmpCol.g; sBase[i*3+2] = tmpCol.b;
+  }
+
+  // ================= Input =================
+  const cursorEl = document.getElementById('cursor');
+  const hintEl = document.getElementById('hint');
+  const mouse = { x: 0, y: 0, px: 0, py: 0, sx: 0, sy: 0 };   // ndc target + smoothed
+  let mouseMoved = false;
+  let holding = false;
+  let charge = 0;
+  let count = 0, shown = 0, disp = 0;
+  let boost = 0, pop = 0, flash = 0;
+  let hintHidden = false;
+  let pxX = window.innerWidth / 2, pxY = window.innerHeight / 2;
+
+  function localPoint(ndcX, ndcY) {
+    const halfH = 60 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    return [ndcX * halfH * camera.aspect, ndcY * halfH, -60];
+  }
+  const hue = () => (clock.elapsedTime * 0.05 + hueShift) % 1;
+
+  window.addEventListener('pointermove', e => {
+    pxX = e.clientX; pxY = e.clientY;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    mouseMoved = true;
+  });
+
+  function hideHint() {
+    if (hintHidden) return;
+    hintHidden = true;
+    hintEl.style.opacity = '0';
+  }
+
+  window.addEventListener('pointerdown', e => {
+    pxX = e.clientX; pxY = e.clientY;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    holding = true;
+    charge = 0;
+    count += 1;
+    hueShift += 0.013;
+    pop = Math.min(pop + 0.22, 0.5);
+    boost = Math.min(boost + 0.5, 5);
+    flash = Math.min(flash + 0.5, 1);
+    shockwave(0.6, hue());
+    burstAtCursor(60, 0.6);
+    if (count % 10 === 0) { shockwave(1.3, hue() + 0.3); boost += 1; burstAtCursor(120, 1); }
+    hideHint();
+  });
+
+  function release() {
+    if (!holding) return;
+    holding = false;
+    const c = charge;
+    charge = 0;
+    if (c > 0.3) {
+      const bonus = Math.round(c * 10);
+      count += bonus;
+      pop = 0.6;
+      shockwave(1.4 + c, hue());
+      shockwave(1.0 + c, hue() + 0.2);
+      boost = Math.min(boost + 1.5 + c * 2.2, 6);
+      flash = 1;
+      burstAtCursor(260, 1.6);
+    }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+  window.addEventListener('blur', release);
+
+  function burstAtCursor(n, power) {
+    const [cx, cy, cz] = localPoint(mouse.x, mouse.y);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (14 + Math.random() * 46) * power;
+      emit(cx, cy, cz, Math.cos(a) * sp, Math.sin(a) * sp, (Math.random() - 0.5) * 30,
+           0.7 + Math.random() * 1.0, 1.2 + Math.random() * 1.8, hue() + Math.random() * 0.25);
+    }
+  }
+
+  // ================= Main loop =================
+  const clock = new THREE.Clock();
+  let travel = 0, twist = 1;
+  let lastMX = 0, lastMY = 0;
+
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 0.033);
+    const t = clock.elapsedTime;
+
+    // --- smooth cursor / steering
+    mouse.sx += (mouse.x - mouse.sx) * Math.min(1, dt * 5);
+    mouse.sy += (mouse.y - mouse.sy) * Math.min(1, dt * 5);
+    camera.rotation.y = -mouse.sx * 0.12;
+    camera.rotation.x = mouse.sy * 0.09;
+    camera.rotation.z += (-mouse.sx * 0.18 - camera.rotation.z) * Math.min(1, dt * 3);
+    tunnelMat.uniforms.uBend.value.set(mouse.sx * 0.38, mouse.sy * 0.38);
+
+    // --- charge / boost
+    if (holding) charge = Math.min(charge + dt * 0.8, 2);
+    boost *= Math.exp(-dt * 1.5);
+    pop   *= Math.exp(-dt * 6);
+    flash *= Math.exp(-dt * 3);
+
+    const freeze = holding ? Math.min(charge, 1) * 0.75 : 0;
+    const speed = 26 * (1 + boost * 2.4) * (1 - freeze);
+    travel += speed * dt;
+    const twistTarget = 1 + boost * 1.4 + charge * 3.0;
+    twist += (twistTarget - twist) * Math.min(1, dt * 4);
+
+    tunnelMat.uniforms.uTravel.value = travel;
+    tunnelMat.uniforms.uTime.value = t;
+    tunnelMat.uniforms.uTwist.value = twist;
+    tunnelMat.uniforms.uBoost.value = boost + charge * 0.6;
+    tunnelMat.uniforms.uHue.value = hueShift;
+
+    camera.fov = 60 + Math.min(boost, 4) * 7 + charge * 3;
+    camera.updateProjectionMatrix();
+
+    clearColor.setRGB(0.012 + flash * 0.05, 0.014 + flash * 0.02, 0.04 + flash * 0.09);
+    renderer.setClearColor(clearColor, 1);
+
+    // --- counter (rolling number)
+    const diff = count - disp;
+    disp += diff * Math.min(1, dt * 9);
+    if (Math.abs(count - disp) < 0.5) disp = count;
+    const r = Math.round(disp);
+    if (r !== shown) { shown = r; drawCounter(shown); }
+    const s = counterBaseScale * (1 + pop + charge * 0.08 + Math.sin(t * 2) * 0.01);
+    counter.scale.set(s, s, 1);
+    counter.rotation.y = mouse.sx * 0.15;
+    counter.rotation.x = -mouse.sy * 0.1;
+    counter.rotation.z = (Math.random() - 0.5) * pop * 0.05 + (holding ? (Math.random() - 0.5) * charge * 0.03 : 0);
+
+    // --- rings
+    for (const rg of rings) {
+      if (rg.life <= 0) continue;
+      rg.life -= dt;
+      if (rg.life <= 0) { rg.mesh.visible = false; continue; }
+      const p = 1 - rg.life / rg.max;
+      const sc = 2 + (1 - Math.pow(1 - p, 3)) * rg.size;
+      rg.mesh.scale.set(sc, sc, 1);
+      rg.mesh.material.opacity = (1 - p) * 0.9;
+    }
+
+    // --- cursor trail emission
+    const [cx, cy, cz] = localPoint(mouse.x, mouse.y);
+    if (mouseMoved) {
+      const dx = cx - lastMX, dy = cy - lastMY;
+      const dist = Math.hypot(dx, dy);
+      const n = Math.min(10, 1 + Math.floor(dist * 1.2));
+      for (let i = 0; i < n; i++) {
+        const k = i / n;
+        emit(lastMX + dx * k + (Math.random() - 0.5) * 1.2, lastMY + dy * k + (Math.random() - 0.5) * 1.2, cz,
+             (Math.random() - 0.5) * 6 - dx * 1.5, (Math.random() - 0.5) * 6 - dy * 1.5, (Math.random() - 0.5) * 6,
+             0.5 + Math.random() * 0.7, 1.0 + Math.random() * 1.6, hue() + Math.random() * 0.2);
+      }
+    }
+    lastMX = cx; lastMY = cy;
+
+    // charging: sparks spiral into the cursor
+    if (holding) {
+      const n = 3 + Math.floor(charge * 4);
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const rad = 8 + Math.random() * 12;
+        const ox = Math.cos(a) * rad, oy = Math.sin(a) * rad;
+        emit(cx + ox, cy + oy, cz, -ox * 2.2 - oy * 1.2, -oy * 2.2 + ox * 1.2, 0,
+             0.5 + Math.random() * 0.3, 1.0 + Math.random() * 1.4, hue() + 0.5 * Math.random());
+      }
+    }
+
+    // --- update sparks
+    const drag = Math.pow(0.12, dt);
+    for (let i = 0; i < S; i++) {
+      if (sLife[i] > 0) {
+        sLife[i] -= dt;
+        const a = Math.max(0, sLife[i] / sMax[i]);
+        const ix = i * 3;
+        sPos[ix]   += sVel[ix] * dt;
+        sPos[ix+1] += sVel[ix+1] * dt;
+        sPos[ix+2] += sVel[ix+2] * dt;
+        sVel[ix] *= drag; sVel[ix+1] *= drag; sVel[ix+2] *= drag;
+        sCol[i*4] = sBase[ix]; sCol[i*4+1] = sBase[ix+1]; sCol[i*4+2] = sBase[ix+2];
+        sCol[i*4+3] = a;
+        sSize[i] = sSize0[i] * (0.4 + a * 0.9);
+      } else {
+        sCol[i*4+3] = 0;
+        sSize[i] = 0;
+      }
+    }
+    sGeo.attributes.position.needsUpdate = true;
+    sGeo.attributes.aColor.needsUpdate = true;
+    sGeo.attributes.aSize.needsUpdate = true;
+
+    // --- DOM cursor reticle
+    const cs = 1 + charge * 1.1 + (holding ? 0.15 : 0);
+    cursorEl.style.transform = `translate3d(${pxX}px, ${pxY}px, 0) scale(${cs}) rotate(${charge * 180}deg)`;
+    cursorEl.style.borderColor = holding ? `hsl(${Math.round(hue() * 360)}, 100%, 70%)` : 'rgba(255,255,255,0.9)';
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  drawCounter(0);
+  frame();
+})();
+</script>
+</body>
+</html>
