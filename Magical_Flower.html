@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Magical Flower</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 70%, #1a0b3a 0%, #090418 55%, #02010a 100%);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: 18px;
+    text-align: center; color: rgba(255, 255, 255, 0.55);
+    font-size: 13px; letter-spacing: 0.08em; pointer-events: none;
+    transition: opacity 1.5s ease;
+  }
+</style>
+</head>
+<body>
+<div id="hint">Drag to rotate &nbsp;·&nbsp; Scroll / pinch to zoom</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  // ---------- Renderer / scene / camera ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 0);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 300);
+  const target = new THREE.Vector3(0, -1.8, 0);
+
+  // ---------- Helpers ----------
+  function makeGlowTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.2, 'rgba(255,255,255,0.65)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.15)');
+    grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+  const glowTex = makeGlowTexture();
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  const uTime = { value: 0 };
+
+  // ---------- Petal geometry ----------
+  function petalGeometry(len, wid, curl) {
+    const g = new THREE.PlaneGeometry(1, 1, 10, 18);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getY(i) + 0.5;        // 0..1 along length
+      const v = pos.getX(i) * 2;          // -1..1 across width
+      const profile = Math.pow(Math.sin(Math.PI * Math.pow(u, 0.8)), 0.7);
+      const x = v * wid * 0.5 * profile;
+      const y = u * len;
+      const z = -curl * len * u * u - (v * v) * 0.18 * wid * u + Math.sin(u * 9.0) * v * 0.02 * wid;
+      pos.setXYZ(i, x, y, z);
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+
+  // ---------- Petal shader ----------
+  const petalVert = `
+    uniform float uTime;
+    uniform float uPhase;
+    varying vec2 vUv;
+    varying vec3 vN;
+    varying vec3 vView;
+    void main() {
+      vUv = uv;
+      vec3 p = position;
+      p.z += sin(uTime * 1.6 + uv.y * 5.0 + uPhase) * 0.05 * uv.y;
+      p.x += sin(uTime * 1.2 + uv.y * 4.0 + uPhase) * 0.03 * uv.y;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      vN = normalize(normalMatrix * normal);
+      vView = -mv.xyz;
+      gl_Position = projectionMatrix * mv;
+    }
+  `;
+  const petalFrag = `
+    uniform float uTime;
+    uniform float uPhase;
+    uniform float uGlow;
+    uniform vec3 uC1;
+    uniform vec3 uC2;
+    varying vec2 vUv;
+    varying vec3 vN;
+    varying vec3 vView;
+    void main() {
+      float edge = abs(vUv.x - 0.5) * 2.0;
+      vec3 col = mix(uC1, uC2, pow(vUv.y, 1.15));
+      float veins = smoothstep(0.88, 1.0, sin((vUv.x - 0.5) * 42.0 * (0.35 + vUv.y)) * 0.5 + 0.5);
+      col += veins * 0.12 * (1.0 - vUv.y);
+      float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vView))), 2.0);
+      col += fres * uGlow * vec3(1.0, 0.85, 1.0) * 0.55;
+      float shimmer = sin(vUv.y * 14.0 - uTime * 2.2 + uPhase) * 0.5 + 0.5;
+      col += shimmer * 0.09 * uC2;
+      col += pow(edge, 3.0) * 0.35 * uC2;
+      float alpha = 0.9 - smoothstep(0.8, 1.0, vUv.y) * 0.3;
+      gl_FragColor = vec4(col, alpha);
+    }
+  `;
+  function petalMaterial(c1, c2, glow, phase) {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: uTime,
+        uPhase: { value: phase || 0 },
+        uGlow: { value: glow === undefined ? 1 : glow },
+        uC1: { value: new THREE.Color(c1) },
+        uC2: { value: new THREE.Color(c2) },
+      },
+      vertexShader: petalVert,
+      fragmentShader: petalFrag,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+  }
+
+  // ---------- Plant group ----------
+  const plant = new THREE.Group();
+  scene.add(plant);
+
+  // Stem
+  const stemCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, -6.5, 0),
+    new THREE.Vector3(0.45, -4.6, 0.25),
+    new THREE.Vector3(-0.35, -2.6, -0.15),
+    new THREE.Vector3(0, -0.1, 0),
+  ]);
+  const stem = new THREE.Mesh(
+    new THREE.TubeGeometry(stemCurve, 60, 0.09, 10, false),
+    new THREE.MeshBasicMaterial({ color: 0x25d6a0 })
+  );
+  plant.add(stem);
+
+  // Leaves
+  const leafSpecs = [
+    { t: 0.28, ang: 0.6, len: 2.2, wid: 0.9, tilt: 1.0 },
+    { t: 0.45, ang: 3.6, len: 2.0, wid: 0.8, tilt: 0.95 },
+    { t: 0.62, ang: 1.9, len: 1.5, wid: 0.65, tilt: 0.9 },
+  ];
+  const leaves = [];
+  leafSpecs.forEach((s, i) => {
+    const pivot = new THREE.Group();
+    pivot.position.copy(stemCurve.getPoint(s.t));
+    pivot.rotation.y = s.ang;
+    const mesh = new THREE.Mesh(
+      petalGeometry(s.len, s.wid, 0.35),
+      petalMaterial('#0b6b58', '#4dffb8', 0.8, i * 1.7)
+    );
+    mesh.rotation.x = s.tilt;
+    pivot.add(mesh);
+    plant.add(pivot);
+    leaves.push({ mesh, base: s.tilt, phase: i });
+  });
+
+  // Flower head
+  const head = new THREE.Group();
+  plant.add(head);
+
+  const layers = [
+    { n: 6,  len: 1.3, wid: 0.6,  tilt: 0.20, curl: 0.35, c1: '#fff1a8', c2: '#ffb36b' },
+    { n: 8,  len: 1.9, wid: 0.95, tilt: 0.45, curl: 0.30, c1: '#ffb86b', c2: '#ff6fb5' },
+    { n: 10, len: 2.6, wid: 1.3,  tilt: 0.75, curl: 0.28, c1: '#ff7ac8', c2: '#b05bff' },
+    { n: 12, len: 3.3, wid: 1.5,  tilt: 1.00, curl: 0.22, c1: '#c05bff', c2: '#5b6bff' },
+    { n: 14, len: 3.9, wid: 1.6,  tilt: 1.28, curl: 0.15, c1: '#6b5bff', c2: '#3bd9ff' },
+  ];
+  const petalMeshes = [];
+  layers.forEach((L, li) => {
+    const geo = petalGeometry(L.len, L.wid, L.curl);
+    for (let i = 0; i < L.n; i++) {
+      const pivot = new THREE.Group();
+      pivot.rotation.y = (i / L.n) * Math.PI * 2 + li * 0.35;
+      const mesh = new THREE.Mesh(geo, petalMaterial(L.c1, L.c2, 1.0, i * 0.7 + li));
+      pivot.add(mesh);
+      head.add(pivot);
+      petalMeshes.push({ mesh, base: L.tilt, layer: li, phase: i * 0.5 + li });
+    }
+  });
+
+  // Core: glow + stamens
+  const core = new THREE.Group();
+  head.add(core);
+
+  const centerGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex, color: 0xffe9a0, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  centerGlow.scale.set(4.5, 4.5, 1);
+  centerGlow.position.y = 0.5;
+  core.add(centerGlow);
+
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfff6c8 })
+  );
+  orb.position.y = 0.35;
+  core.add(orb);
+
+  const tipPositions = [];
+  const tipColors = [];
+  for (let i = 0; i < 30; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = rand(0.3, 1.0);
+    const h = rand(1.0, 1.9);
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.1, 0),
+      new THREE.Vector3(Math.cos(a) * r * 0.3, h * 0.5, Math.sin(a) * r * 0.3),
+      new THREE.Vector3(Math.cos(a) * r, h, Math.sin(a) * r),
+    ]);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(curve.getPoints(14)),
+      new THREE.LineBasicMaterial({
+        color: 0xffd36e, transparent: true, opacity: 0.55,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })
+    );
+    core.add(line);
+    const tip = curve.getPoint(1);
+    tipPositions.push(tip.x, tip.y, tip.z);
+    const col = new THREE.Color().setHSL(rand(0.08, 0.16), 1, 0.7);
+    tipColors.push(col.r, col.g, col.b);
+  }
+  const tipGeo = new THREE.BufferGeometry();
+  tipGeo.setAttribute('position', new THREE.Float32BufferAttribute(tipPositions, 3));
+  tipGeo.setAttribute('color', new THREE.Float32BufferAttribute(tipColors, 3));
+  const tips = new THREE.Points(tipGeo, new THREE.PointsMaterial({
+    size: 0.4, map: glowTex, vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  core.add(tips);
+
+  // ---------- Ground glow + ripples ----------
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(7, 64),
+    new THREE.MeshBasicMaterial({
+      map: glowTex, color: 0x8a4dff, transparent: true, opacity: 0.8,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -6.5;
+  scene.add(ground);
+
+  const ripples = [];
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.95, 1.0, 96),
+      new THREE.MeshBasicMaterial({
+        color: 0xc9a0ff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -6.48;
+    scene.add(ring);
+    ripples.push({ ring, offset: i / 3 });
+  }
+
+  // ---------- Sparkles (rising magic dust) ----------
+  const N = 450;
+  const sPos = new Float32Array(N * 3);
+  const sCol = new Float32Array(N * 3);
+  const sData = [];
+  const palette = ['#ff9be5', '#ffe08a', '#9be7ff', '#c8a0ff', '#ffffff'].map(c => new THREE.Color(c));
+  function resetSpark(d, initial) {
+    d.angle = Math.random() * Math.PI * 2;
+    d.radius = rand(0.2, 5.0);
+    d.y = initial ? rand(-6.5, 9) : rand(-6.5, -5);
+    d.speed = rand(0.3, 1.1);
+    d.swirl = rand(0.15, 0.6) * (Math.random() < 0.5 ? -1 : 1);
+    d.wob = rand(0, 6.28);
+  }
+  for (let i = 0; i < N; i++) {
+    const d = {};
+    resetSpark(d, true);
+    sData.push(d);
+    const c = palette[Math.floor(Math.random() * palette.length)];
+    sCol[i * 3] = c.r; sCol[i * 3 + 1] = c.g; sCol[i * 3 + 2] = c.b;
+  }
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+  sGeo.setAttribute('color', new THREE.BufferAttribute(sCol, 3));
+  const sparkles = new THREE.Points(sGeo, new THREE.PointsMaterial({
+    size: 0.3, map: glowTex, vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  scene.add(sparkles);
+
+  // ---------- Falling petals ----------
+  const fallGeo = petalGeometry(0.55, 0.3, 0.3);
+  const falling = [];
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(fallGeo, petalMaterial('#ff9be5', '#c8a0ff', 1.2, i));
+    scene.add(m);
+    const f = { m };
+    f.reset = function (initial) {
+      const a = Math.random() * Math.PI * 2, r = rand(1.5, 5.5);
+      m.position.set(Math.cos(a) * r, initial ? rand(-6, 6) : rand(5, 7), Math.sin(a) * r);
+      f.vy = rand(0.3, 0.7);
+      f.rot = new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1));
+      f.sway = rand(0.4, 1.2);
+      f.ph = rand(0, 6.28);
+    };
+    f.reset(true);
+    falling.push(f);
+  }
+
+  // ---------- Star field ----------
+  const starCount = 1200;
+  const starPos = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const r = rand(60, 110);
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(rand(-1, 1));
+    starPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+    starPos[i * 3 + 1] = r * Math.cos(ph);
+    starPos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    size: 1.2, map: glowTex, color: 0xcfd8ff, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  scene.add(stars);
+
+  // ---------- Camera controls (drag / wheel / pinch) ----------
+  let theta = 0.3, phi = 1.35, radius = 14;
+  let tTheta = theta, tPhi = phi, tRadius = radius;
+  let dragging = false, lastX = 0, lastY = 0, idle = 0;
+  const pointers = new Map();
+  let pinchDist = 0;
+  const el = renderer.domElement;
+
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    dragging = true; lastX = e.clientX; lastY = e.clientY; idle = 0;
+    document.getElementById('hint').style.opacity = 0;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDist) tRadius = THREE.MathUtils.clamp(tRadius * (pinchDist / d), 6, 30);
+      pinchDist = d;
+      return;
+    }
+    tTheta -= (e.clientX - lastX) * 0.006;
+    tPhi = THREE.MathUtils.clamp(tPhi - (e.clientY - lastY) * 0.006, 0.4, 1.75);
+    lastX = e.clientX; lastY = e.clientY; idle = 0;
+  });
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    pinchDist = 0;
+    if (pointers.size === 0) dragging = false;
+  };
+  el.addEventListener('pointerup', endPointer);
+  el.addEventListener('pointercancel', endPointer);
+  el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    tRadius = THREE.MathUtils.clamp(tRadius + e.deltaY * 0.01, 6, 30);
+  }, { passive: false });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- Animation loop ----------
+  const clock = new THREE.Clock();
+  const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+    uTime.value = t;
+
+    // Intro growth + gentle breathing
+    const grow = easeOutCubic(Math.min(t / 5, 1));
+    const breathe = 0.92 + 0.08 * Math.sin(t * 0.7);
+    const open = grow * breathe;
+
+    head.scale.setScalar(0.05 + 0.95 * grow);
+    head.rotation.y = t * 0.12;
+    plant.rotation.z = Math.sin(t * 0.5) * 0.025;
+    plant.rotation.x = Math.cos(t * 0.4) * 0.015;
+
+    petalMeshes.forEach((p) => {
+      const closed = 0.08 + p.layer * 0.02;
+      const target = closed + (p.base - closed) * open;
+      p.mesh.rotation.x = target + Math.sin(t * 1.1 + p.phase) * 0.035;
+    });
+    leaves.forEach((l) => {
+      l.mesh.rotation.x = l.base + Math.sin(t * 0.9 + l.phase) * 0.06;
+    });
+
+    // Core pulse
+    const pulse = 1 + 0.12 * Math.sin(t * 2.2);
+    centerGlow.scale.set(4.5 * pulse, 4.5 * pulse, 1);
+    centerGlow.material.opacity = 0.75 + 0.25 * Math.sin(t * 2.2);
+    orb.scale.setScalar(pulse);
+    tips.material.size = 0.38 + 0.08 * Math.sin(t * 3.0);
+    core.scale.setScalar(0.85 + 0.15 * open);
+
+    // Ground
+    ground.material.opacity = 0.55 + 0.25 * Math.sin(t * 1.3);
+    ripples.forEach((r) => {
+      const k = (t * 0.18 + r.offset) % 1;
+      r.ring.scale.setScalar(0.5 + k * 7);
+      r.ring.material.opacity = (1 - k) * 0.35 * grow;
+    });
+
+    // Sparkles
+    for (let i = 0; i < N; i++) {
+      const d = sData[i];
+      d.y += d.speed * dt;
+      d.angle += d.swirl * dt;
+      if (d.y > 9) resetSpark(d, false);
+      const rr = d.radius * (0.6 + 0.4 * Math.sin(t * 0.5 + d.wob));
+      sPos[i * 3] = Math.cos(d.angle) * rr;
+      sPos[i * 3 + 1] = d.y;
+      sPos[i * 3 + 2] = Math.sin(d.angle) * rr;
+    }
+    sGeo.attributes.position.needsUpdate = true;
+    sparkles.material.size = 0.28 + 0.06 * Math.sin(t * 2.0);
+
+    // Falling petals
+    falling.forEach((f) => {
+      f.m.position.y -= f.vy * dt;
+      f.m.position.x += Math.sin(t * f.sway + f.ph) * 0.4 * dt;
+      f.m.position.z += Math.cos(t * f.sway + f.ph) * 0.4 * dt;
+      f.m.rotation.x += f.rot.x * dt;
+      f.m.rotation.y += f.rot.y * dt;
+      f.m.rotation.z += f.rot.z * dt;
+      if (f.m.position.y < -6.4) f.reset(false);
+    });
+
+    stars.rotation.y = t * 0.01;
+
+    // Camera
+    idle += dt;
+    if (!dragging && idle > 2) tTheta += dt * 0.12;
+    theta += (tTheta - theta) * 0.08;
+    phi += (tPhi - phi) * 0.08;
+    radius += (tRadius - radius) * 0.08;
+    camera.position.set(
+      target.x + radius * Math.sin(phi) * Math.sin(theta),
+      target.y + radius * Math.cos(phi),
+      target.z + radius * Math.sin(phi) * Math.cos(theta)
+    );
+    camera.lookAt(target);
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
