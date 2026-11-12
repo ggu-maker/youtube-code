@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Storm Vortex</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #010208; overflow: hidden; }
+  canvas { display: block; }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,6,0.75) 100%);
+  }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: 18px; text-align: center;
+    font: 12px/1.4 system-ui, sans-serif; color: rgba(170, 190, 255, 0.5);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    pointer-events: none; user-select: none;
+  }
+</style>
+</head>
+<body>
+<div id="vignette"></div>
+<div id="hint">Move to look around &nbsp;•&nbsp; Scroll to zoom &nbsp;•&nbsp; Click to call lightning</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/MaskPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+<script>
+(function () {
+  const H = 12; // funnel height
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearColor(0x010208);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 300);
+
+  // shared uniforms
+  const U = {
+    uTime:  { value: 0 },
+    uSpin:  { value: 0 },
+    uFlash: { value: 0 },
+    uPixelRatio: { value: renderer.getPixelRatio() },
+  };
+
+  /* ---------- GLSL helpers ---------- */
+  const NOISE = `
+    float hash(vec3 p){
+      p = fract(p * 0.3183099 + 0.1);
+      p *= 17.0;
+      return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+    }
+    float noise(vec3 x){
+      vec3 i = floor(x); vec3 f = fract(x);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(
+        mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+            mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+        mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+            mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+    }
+    float fbm(vec3 p){
+      float v = 0.0, a = 0.5;
+      for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 11.7; a *= 0.5; }
+      return v;
+    }
+  `;
+  const SWAY = `
+    vec3 sway(float t, float time){
+      float s = t * t;
+      return vec3(sin(time * 0.6 + t * 3.0) * 0.9 * s, 0.0, cos(time * 0.45 + t * 2.6) * 0.7 * s);
+    }
+  `;
+
+  /* ---------- Funnel (3 nested turbulent shells) ---------- */
+  const profile = [];
+  for (let i = 0; i <= 60; i++) {
+    const t = i / 60;
+    profile.push(new THREE.Vector2(0.35 + Math.pow(t, 2.2) * 6.5, t * H));
+  }
+  const funnelGeo = new THREE.LatheGeometry(profile, 128);
+
+  const funnelVS = `
+    uniform float uTime;
+    varying vec3 vPos; varying float vT; varying vec3 vN; varying vec3 vV;
+    ${SWAY}
+    void main(){
+      vec3 p = position;
+      vPos = p;
+      vT = p.y / ${H.toFixed(1)};
+      p += sway(vT, uTime);
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      vN = normalize(normalMatrix * normal);
+      vV = -mv.xyz;
+      gl_Position = projectionMatrix * mv;
+    }
+  `;
+  const funnelFS = `
+    precision highp float;
+    uniform float uTime, uFlash, uSeed, uFlow, uOpacity;
+    varying vec3 vPos; varying float vT; varying vec3 vN; varying vec3 vV;
+    ${NOISE}
+    void main(){
+      float t = vT;
+      vec2 dir = normalize(vPos.xz + 1e-4);
+      float a = uTime * (0.9 + (1.0 - t) * 1.6) * uFlow - t * 5.0 + uSeed;
+      float ca = cos(a), sa = sin(a);
+      vec2 rd = vec2(dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca);
+      vec3 q = vec3(rd * 2.0, vPos.y * 0.3 - uTime * 0.55 * uFlow + uSeed * 3.0);
+      float n = fbm(q) * 0.65 + fbm(q * 2.3 + 7.0) * 0.35;
+      float dens = smoothstep(0.30, 0.78, n);
+
+      vec3 N = normalize(vN); vec3 V = normalize(vV);
+      float fres = pow(1.0 - abs(dot(N, V)), 1.6);
+      float fadeB = smoothstep(0.0, 0.08, t);
+      float fadeT = 1.0 - smoothstep(0.82, 1.0, t);
+
+      vec3 dark = vec3(0.05, 0.07, 0.12), light = vec3(0.42, 0.58, 0.85);
+      vec3 col = mix(dark, light, n * n * 1.6);
+      col += vec3(0.25, 0.55, 1.0) * fres * 0.9 * dens;
+      col += vec3(0.7, 0.8, 1.0) * uFlash * (0.35 + n);
+      col += vec3(0.5, 0.7, 1.0) * exp(-t * 6.0) * 0.6 * dens;
+
+      float alpha = dens * (0.28 + 0.72 * fres) * fadeB * fadeT * uOpacity;
+      gl_FragColor = vec4(col, alpha);
+    }
+  `;
+  const layers = [
+    { scale: 1.00, seed: 0.0, flow: 1.00, op: 1.00, order: 2 },
+    { scale: 1.18, seed: 2.3, flow: 0.75, op: 0.55, order: 3 },
+    { scale: 0.82, seed: 5.1, flow: 1.30, op: 0.90, order: 4 },
+  ];
+  layers.forEach(l => {
+    const m = new THREE.Mesh(funnelGeo, new THREE.ShaderMaterial({
+      vertexShader: funnelVS, fragmentShader: funnelFS,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      uniforms: {
+        uTime: U.uTime, uFlash: U.uFlash,
+        uSeed: { value: l.seed }, uFlow: { value: l.flow }, uOpacity: { value: l.op },
+      },
+    }));
+    m.scale.set(l.scale, 1, l.scale);
+    m.renderOrder = l.order;
+    m.frustumCulled = false;
+    scene.add(m);
+  });
+
+  /* ---------- Ground dust + storm ceiling ---------- */
+  const planeVS = `
+    varying vec3 vW;
+    void main(){
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vW = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }
+  `;
+  const groundFS = `
+    precision highp float;
+    uniform float uTime, uFlash;
+    varying vec3 vW;
+    ${NOISE}
+    void main(){
+      float d = length(vW.xz);
+      float ang = atan(vW.z, vW.x);
+      float sw = ang + 6.0 / (d + 1.5) - uTime * 0.9;
+      vec3 P = vec3(cos(sw), sin(sw), 0.0) * d * 0.16 + vec3(0.0, 0.0, uTime * 0.05);
+      float dust = fbm(P * 1.4);
+      float dens = smoothstep(0.32, 0.8, dust) * smoothstep(30.0, 3.0, d);
+      vec3 col = mix(vec3(0.02, 0.03, 0.06), vec3(0.38, 0.5, 0.72), dust);
+      col += vec3(0.35, 0.6, 1.0) * exp(-d * 0.35);
+      col += vec3(0.6, 0.75, 1.0) * uFlash * dust * 0.8;
+      float alpha = clamp(dens * 0.85 + exp(-d * 0.4) * 0.55, 0.0, 1.0);
+      gl_FragColor = vec4(col, alpha);
+    }
+  `;
+  const ceilFS = `
+    precision highp float;
+    uniform float uTime, uFlash;
+    varying vec3 vW;
+    ${NOISE}
+    void main(){
+      float d = length(vW.xz);
+      float ang = atan(vW.z, vW.x);
+      float sw = ang - 5.0 / (d + 2.0) + uTime * 0.35;
+      vec3 P = vec3(cos(sw), sin(sw), 0.0) * d * 0.09 + vec3(0.0, 0.0, uTime * 0.04);
+      float c = fbm(P * 1.6);
+      float dens = smoothstep(0.30, 0.75, c);
+      float hole = smoothstep(2.5, 8.0, d);
+      float far = smoothstep(46.0, 14.0, d);
+      vec3 col = mix(vec3(0.02, 0.03, 0.06), vec3(0.2, 0.26, 0.4), c);
+      col += vec3(0.55, 0.7, 1.0) * uFlash * (0.3 + c) * 1.2;
+      col += vec3(0.25, 0.5, 1.0) * exp(-d * 0.18) * 0.35 * dens;
+      gl_FragColor = vec4(col, dens * hole * far * 0.95);
+    }
+  `;
+  function makePlane(fs, y, order) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 120, 1, 1),
+      new THREE.ShaderMaterial({
+        vertexShader: planeVS, fragmentShader: fs,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        uniforms: { uTime: U.uTime, uFlash: U.uFlash },
+      })
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = y;
+    m.renderOrder = order;
+    scene.add(m);
+  }
+  makePlane(groundFS, -0.02, 0);
+  makePlane(ceilFS, H + 0.6, 1);
+
+  /* ---------- Debris / dust particles ---------- */
+  const COUNT = 70000;
+  const seeds = new Float32Array(COUNT * 4);
+  for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random();
+  for (let i = 0; i < COUNT; i++) seeds[i * 4 + 1] *= Math.PI * 2;
+  const pgeo = new THREE.BufferGeometry();
+  pgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(COUNT * 3), 3));
+  pgeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
+
+  const pmat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: U.uTime, uSpin: U.uSpin, uFlash: U.uFlash, uPixelRatio: U.uPixelRatio },
+    vertexShader: `
+      attribute vec4 aSeed;
+      uniform float uTime, uSpin, uPixelRatio, uFlash;
+      varying vec3 vCol; varying float vAlpha;
+      ${SWAY}
+      void main(){
+        float t = fract(aSeed.x + uTime * 0.035 * (0.7 + aSeed.z * 0.6));
+        float prof = 0.35 + pow(t, 2.2) * 6.5;
+        float flung = step(0.8, aSeed.z);
+        float r = prof * (0.75 + aSeed.z * 0.5);
+        r = mix(r, prof * (1.3 + (aSeed.z - 0.8) * 8.0), flung);
+        float ang = aSeed.y + uSpin * (0.9 + (1.0 - t) * 2.6) / (1.0 + flung * 0.5);
+        vec3 pos = vec3(cos(ang) * r, t * ${H.toFixed(1)} + (aSeed.w - 0.5) * 0.4, sin(ang) * r);
+        pos += sway(t, uTime);
+
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = (0.8 + aSeed.w * 2.2) * uPixelRatio * (22.0 / -mv.z);
+
+        vec3 cool = vec3(0.55, 0.72, 1.0);
+        vec3 warm = vec3(1.0, 0.62, 0.35);
+        vCol = mix(cool, warm, step(0.93, aSeed.z)) * (1.0 + (1.0 - t) * 0.8) * (1.0 + uFlash * 1.5);
+        vCol *= mix(1.0, 0.45, flung);
+        vAlpha = smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.9, 1.0, t));
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vCol; varying float vAlpha;
+      void main(){
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        float g = pow(1.0 - d * 2.0, 2.0);
+        gl_FragColor = vec4(vCol * g, g * vAlpha * 0.8);
+      }
+    `,
+  });
+  const points = new THREE.Points(pgeo, pmat);
+  points.frustumCulled = false;
+  points.renderOrder = 5;
+  scene.add(points);
+
+  /* ---------- Lightning ---------- */
+  const MAXV = 6000;
+  const boltPos = new Float32Array(MAXV * 3);
+  const boltGeo = new THREE.BufferGeometry();
+  boltGeo.setAttribute('position', new THREE.BufferAttribute(boltPos, 3));
+  boltGeo.setDrawRange(0, 0);
+  const boltMat = new THREE.LineBasicMaterial({
+    color: 0xcfe0ff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const bolt = new THREE.LineSegments(boltGeo, boltMat);
+  bolt.frustumCulled = false;
+  bolt.renderOrder = 6;
+  scene.add(bolt);
+
+  function jag(a, b, disp, depth, out) {
+    if (depth === 0 || out.length > MAXV - 40) { out.push(a, b); return; }
+    const m = a.clone().add(b).multiplyScalar(0.5);
+    m.x += (Math.random() - 0.5) * disp;
+    m.z += (Math.random() - 0.5) * disp;
+    m.y += (Math.random() - 0.5) * disp * 0.3;
+    jag(a, m, disp * 0.55, depth - 1, out);
+    jag(m, b, disp * 0.55, depth - 1, out);
+    if (depth >= 3 && Math.random() < 0.18) {
+      const e = m.clone();
+      e.x += (Math.random() - 0.5) * 5;
+      e.y = Math.max(0, e.y - 2 - Math.random() * 4);
+      e.z += (Math.random() - 0.5) * 5;
+      jag(m, e, disp * 0.6, depth - 2, out);
+    }
+  }
+  let boltLife = 0, flickerAt = -1;
+  function strike() {
+    const a = Math.random() * Math.PI * 2, r0 = 3 + Math.random() * 3;
+    const b = a + (Math.random() - 0.5), r1 = 2 + Math.random() * 8;
+    const start = new THREE.Vector3(Math.cos(a) * r0, H + 0.4, Math.sin(a) * r0);
+    const end = new THREE.Vector3(Math.cos(b) * r1, 0, Math.sin(b) * r1);
+    const out = [];
+    jag(start, end, 3.0, 6, out);
+    out.forEach((v, i) => { boltPos[i * 3] = v.x; boltPos[i * 3 + 1] = v.y; boltPos[i * 3 + 2] = v.z; });
+    boltGeo.attributes.position.needsUpdate = true;
+    boltGeo.setDrawRange(0, out.length);
+    boltLife = 1;
+    U.uFlash.value = 1;
+    flickerAt = time + 0.11;
+  }
+
+  /* ---------- Post-processing (bloom) ---------- */
+  let composer = null, bloom = null;
+  if (THREE.EffectComposer && THREE.UnrealBloomPass) {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    bloom = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.8, 0.08);
+    composer.addPass(bloom);
+  }
+
+  /* ---------- Interaction ---------- */
+  const mouse = { x: 0, y: 0 }, target = { x: 0, y: 0 };
+  let camR = 17, camRTarget = 17, boost = 0, boosting = false;
+  addEventListener('pointermove', e => {
+    target.x = (e.clientX / innerWidth - 0.5) * 2;
+    target.y = (e.clientY / innerHeight - 0.5) * 2;
+  });
+  addEventListener('pointerdown', () => { boosting = true; strike(); });
+  addEventListener('pointerup', () => boosting = false);
+  addEventListener('pointercancel', () => boosting = false);
+  addEventListener('wheel', e => {
+    camRTarget = Math.min(32, Math.max(8, camRTarget + e.deltaY * 0.01));
+  }, { passive: true });
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    if (composer) composer.setSize(innerWidth, innerHeight);
+    U.uPixelRatio.value = renderer.getPixelRatio();
+  });
+
+  /* ---------- Loop ---------- */
+  const clock = new THREE.Clock();
+  let time = 0, spin = 0, nextStrike = 1.5;
+
+  function tick() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    boost += ((boosting ? 1 : 0) - boost) * Math.min(1, dt * 3);
+    time += dt * (1 + boost * 1.5);
+    spin += dt * (0.5 + boost * 1.8);
+    U.uTime.value = time;
+    U.uSpin.value = spin;
+
+    // lightning schedule
+    if (time > nextStrike) { strike(); nextStrike = time + 1.8 + Math.random() * 3.5 - boost * 1.2; }
+    if (flickerAt > 0 && time > flickerAt) {
+      U.uFlash.value = Math.max(U.uFlash.value, 0.65);
+      boltLife = Math.max(boltLife, 0.8);
+      flickerAt = -1;
+    }
+    U.uFlash.value *= Math.exp(-dt * 6);
+    boltLife *= Math.exp(-dt * 7);
+    boltMat.opacity = boltLife;
+
+    // camera
+    mouse.x += (target.x - mouse.x) * 0.05;
+    mouse.y += (target.y - mouse.y) * 0.05;
+    camR += (camRTarget - camR) * 0.06;
+    const ca = time * 0.05 + mouse.x * 0.9;
+    camera.position.set(Math.sin(ca) * camR, 2.5 + mouse.y * 2.5 + 1.0, Math.cos(ca) * camR);
+    camera.lookAt(0, 5.0, 0);
+
+    if (bloom) bloom.strength = 0.9 + U.uFlash.value * 1.3;
+    composer ? composer.render() : renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
