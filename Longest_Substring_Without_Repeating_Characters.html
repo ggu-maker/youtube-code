@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Longest Substring Without Repeating Characters – Visualizer</title>
+<style>
+:root{
+  --bg:#f3f6fa;--surface:#ffffff;--ink:#14202e;--muted:#5b6b7c;--line:#d5dde7;
+  --accent:#1f5fbf;--good:#157a4a;--good-bg:#dcf3e6;--bad:#c4283c;--bad-bg:#fbe0e4;
+  --cur:#e8eefb;--best:#b86e00;--code-bg:#eef2f8;--hl:#fff1c2;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1621;--surface:#162232;--ink:#e6edf5;--muted:#93a4b6;--line:#2b3b4f;
+  --accent:#7db0ff;--good:#5fd196;--good-bg:#17402e;--bad:#ff7a8c;--bad-bg:#4a1b25;
+  --cur:#1f3250;--best:#ffb84d;--code-bg:#111b29;--hl:#4a3d12;}}
+:root[data-theme="dark"]{
+  --bg:#0e1621;--surface:#162232;--ink:#e6edf5;--muted:#93a4b6;--line:#2b3b4f;
+  --accent:#7db0ff;--good:#5fd196;--good-bg:#17402e;--bad:#ff7a8c;--bad-bg:#4a1b25;
+  --cur:#1f3250;--best:#ffb84d;--code-bg:#111b29;--hl:#4a3d12;}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 6px;letter-spacing:-.01em}
+h2{font-size:1rem;margin:0 0 8px}
+.lede{color:var(--muted);margin:0 0 18px;max-width:70ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.ex{display:flex;flex-wrap:wrap;gap:8px 20px;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.9rem}
+.ex b{color:var(--accent)}
+.inputrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+input[type=text]{font:inherit;font-family:ui-monospace,Consolas,Menlo,monospace;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:min(260px,100%)}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.chips button{padding:4px 10px;font-size:.85rem;font-family:ui-monospace,Consolas,Menlo,monospace}
+.tiles{display:flex;gap:6px;overflow-x:auto;padding:6px 2px 10px}
+.cell{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:46px}
+.tile{width:46px;height:52px;display:grid;place-items:center;border:2px solid var(--line);border-radius:8px;font:700 1.4rem ui-monospace,Consolas,Menlo,monospace;background:var(--bg);transition:background .2s,border-color .2s,transform .2s}
+.tile.win{background:var(--good-bg);border-color:var(--good)}
+.tile.cur{background:var(--cur);border-color:var(--accent);transform:translateY(-4px)}
+.tile.dup{background:var(--bad-bg);border-color:var(--bad);transform:translateY(-4px)}
+.tile.best{box-shadow:0 5px 0 -1px var(--best)}
+.idx{font-size:.75rem;color:var(--muted);font-family:ui-monospace,Consolas,Menlo,monospace}
+.ptr{height:20px;font-size:.8rem;font-weight:700;display:flex;gap:3px}
+.ptr span{padding:0 6px;border-radius:6px;color:var(--bg)}
+.ptr .pi{background:var(--good)}
+.ptr .pj{background:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.82rem;color:var(--muted);margin-top:4px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:2px solid}
+.setrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:40px}
+.setbox{display:flex;gap:6px;flex-wrap:wrap;align-items:center;border:2px dashed var(--line);border-radius:10px;padding:6px 10px;min-height:44px;flex:1}
+.chip{font:700 1rem ui-monospace,Consolas,Menlo,monospace;padding:2px 10px;border-radius:6px;background:var(--good-bg);color:var(--good);border:1px solid var(--good)}
+.chip.new{animation:pop .3s}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.empty{color:var(--muted);font-size:.9rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.stat small{display:block;color:var(--muted);font-size:.78rem}
+.stat strong{font:700 1.3rem ui-monospace,Consolas,Menlo,monospace}
+.msg{min-height:3.4em;font-size:1.02rem;border-left:4px solid var(--accent);padding:6px 12px;background:var(--cur);border-radius:0 8px 8px 0;margin:14px 0 0}
+.msg.dupmsg{border-color:var(--bad);background:var(--bad-bg)}
+.msg.addmsg{border-color:var(--good);background:var(--good-bg)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.controls label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:6px}
+input[type=range]{accent-color:var(--accent)}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:820px){.grid{grid-template-columns:1.15fr 1fr}}
+pre{margin:0;background:var(--code-bg);border-radius:10px;padding:8px 0;overflow-x:auto;font:.85rem/1.6 ui-monospace,Consolas,Menlo,monospace}
+.ln{display:block;padding:0 12px 0 8px;white-space:pre;border-left:4px solid transparent}
+.ln.on{background:var(--hl);border-left-color:var(--best)}
+.ln em{color:var(--muted);font-style:normal;display:inline-block;width:2ch;margin-right:1ch;text-align:right}
+.steps{font-size:.85rem;color:var(--muted);margin-left:auto}
+.note{font-size:.9rem;color:var(--muted);margin:0}
+.note b{color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Longest substring without repeating characters</h1>
+  <p class="lede">Given a string, find the length of the longest substring in which no character appears twice. This page animates the brute-force Java solution one step at a time.</p>
+
+  <section class="panel">
+    <h2>The question</h2>
+    <div class="ex">
+      <span><b>"abcabcbb"</b> → 3 (“abc”)</span>
+      <span><b>"bbbbb"</b> → 1 (“b”)</span>
+      <span><b>"pwwkew"</b> → 3 (“wke”)</span>
+    </div>
+    <p class="note" style="margin-top:10px">A <b>substring</b> is a continuous piece of the string. “pwke” would be a subsequence, not a substring, so it doesn’t count.</p>
+  </section>
+
+  <section class="panel">
+    <div class="inputrow">
+      <label for="inp" class="note">String (max 14 characters):</label>
+      <input id="inp" type="text" maxlength="14" value="abcabcbb" autocomplete="off" spellcheck="false">
+      <button class="primary" id="load">Load</button>
+      <span class="chips" id="chips"></span>
+    </div>
+
+    <div class="tiles" id="tiles" aria-live="off"></div>
+    <div class="legend">
+      <span><i style="background:var(--good-bg);border-color:var(--good)"></i>in the current set</span>
+      <span><i style="background:var(--cur);border-color:var(--accent)"></i>j is looking here</span>
+      <span><i style="background:var(--bad-bg);border-color:var(--bad)"></i>repeat found</span>
+      <span><i style="border-color:var(--best);border-width:0 0 3px"></i>best substring so far</span>
+    </div>
+
+    <div class="setrow" style="margin-top:14px">
+      <strong>set =</strong>
+      <div class="setbox" id="setbox"></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><small>i (start)</small><strong id="si">–</strong></div>
+      <div class="stat"><small>j (end)</small><strong id="sj">–</strong></div>
+      <div class="stat"><small>current length</small><strong id="sl">0</strong></div>
+      <div class="stat"><small>maxLength</small><strong id="sm">0</strong></div>
+    </div>
+
+    <p class="msg" id="msg" role="status"></p>
+
+    <div class="controls">
+      <button id="first" title="Back to start">⏮ Reset</button>
+      <button id="prev">◀ Back</button>
+      <button class="primary" id="play">▶ Play</button>
+      <button id="next">Next ▶</button>
+      <label>Speed <input type="range" id="speed" min="1" max="10" value="5"></label>
+      <span class="steps" id="count"></span>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Code (highlighted line = what is running now)</h2>
+      <pre id="code"></pre>
+    </section>
+    <section class="panel">
+      <h2>How to read it</h2>
+      <p class="note"><b>Outer loop (i)</b> chooses where a substring starts.</p>
+      <p class="note" style="margin-top:8px"><b>Inner loop (j)</b> walks right from i, adding characters to a <b>set</b>. A set can’t hold duplicates, so <code>set.contains(ch)</code> tells us instantly whether we’ve seen the character.</p>
+      <p class="note" style="margin-top:8px">The moment a repeat appears, the substring can’t grow, so we <b>break</b> and try the next start.</p>
+      <p class="note" style="margin-top:8px"><b>Cost:</b> for each of n starts we may scan up to n characters, so time is O(n²). The set holds at most the alphabet size, so extra space is O(min(n, alphabet)). A sliding window brings this down to O(n).</p>
+    </section>
+  </div>
+</main>
+
+<script>
+(function(){
+var CODE = [
+ "int maxLength = 0;",
+ "for (int i = 0; i < s.length(); i++) {",
+ "    HashSet<Character> set = new HashSet<>();",
+ "    for (int j = i; j < s.length(); j++) {",
+ "        char ch = s.charAt(j);",
+ "        if (set.contains(ch)) {",
+ "            break;",
+ "        }",
+ "        set.add(ch);",
+ "        maxLength = Math.max(maxLength, j - i + 1);",
+ "    }",
+ "}",
+ "return maxLength;"
+];
+var $ = function(id){return document.getElementById(id)};
+var s = "", steps = [], idx = 0, timer = null;
+
+function q(c){return "\u201C"+c+"\u201D"}
+
+function build(str){
+  var out = [], max = 0, bs = 0, be = -1, n = str.length;
+  function snap(o){ o.max = max; o.bs = bs; o.be = be; out.push(o); }
+  snap({t:"init", i:null, j:null, set:[], len:0, lines:[0],
+    msg: n ? "Start with maxLength = 0. We will try every position as a starting point i." : "The string is empty, so the answer is 0."});
+  for (var i = 0; i < n; i++){
+    var set = [];
+    snap({t:"start", i:i, j:null, set:[], len:0, lines:[1,2],
+      msg:"Pick a new start i = "+i+" ("+q(str[i])+") and create an empty set. Nothing has been seen from here yet."});
+    var broke = false;
+    for (var j = i; j < n; j++){
+      var ch = str[j];
+      snap({t:"check", i:i, j:j, set:set.slice(), len:j-i, lines:[3,4,5],
+        msg:"Look at j = "+j+": "+q(ch)+". Is it already in the set? "+(set.indexOf(ch)>=0?"Yes.":"No.")});
+      if (set.indexOf(ch) >= 0){
+        snap({t:"dup", i:i, j:j, set:set.slice(), len:j-i, lines:[6],
+          msg:q(ch)+" is already in the set, so the substring from i = "+i+" can’t grow. break, then move i forward."});
+        broke = true; break;
+      }
+      set.push(ch);
+      var prev = max, len = j-i+1;
+      if (len > max){ max = len; bs = i; be = j; }
+      snap({t:"add", i:i, j:j, set:set.slice(), len:len, lines:[8,9], added:ch,
+        msg:"Add "+q(ch)+" to the set. Length = j − i + 1 = "+len+". maxLength = max("+prev+", "+len+") = "+max+"."});
+    }
+    if (!broke){
+      snap({t:"end", i:i, j:null, set:set.slice(), len:set.length, lines:[10],
+        msg:"j reached the end of the string with no repeat. Move i forward."});
+    }
+  }
+  snap({t:"done", i:null, j:null, set:[], len:0, lines:[12],
+    msg: n ? "Done. Every start was tried. The answer is "+max+(max?" ("+q(str.slice(bs,be+1))+")":"")+"." : "The string is empty, so the answer is 0."});
+  return out;
+}
+
+function renderCode(){
+  $("code").innerHTML = CODE.map(function(l,k){
+    var t = l.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    return '<span class="ln" data-l="'+k+'"><em>'+(k+1)+'</em>'+t+'</span>';
+  }).join("");
+}
+
+function renderTiles(){
+  $("tiles").innerHTML = s.split("").map(function(c,k){
+    return '<div class="cell"><div class="ptr" id="p'+k+'"></div><div class="tile" id="t'+k+'">'+c.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</div><div class="idx">'+k+'</div></div>';
+  }).join("");
+}
+
+function render(){
+  var st = steps[idx], n = s.length;
+  for (var k = 0; k < n; k++){
+    var t = $("t"+k), p = $("p"+k), cls = "tile", ptr = "";
+    if (st.i !== null && k >= st.i && k < st.i + st.set.length) cls += " win";
+    if (st.t === "check" && k === st.j) cls += " cur";
+    if (st.t === "dup" && k === st.j) cls += " dup";
+    if (st.t === "add" && k === st.j) cls += " win";
+    if (st.be >= st.bs && k >= st.bs && k <= st.be) cls += " best";
+    t.className = cls;
+    if (st.i === k) ptr += '<span class="pi">i</span>';
+    if (st.j === k) ptr += '<span class="pj">j</span>';
+    p.innerHTML = ptr;
+  }
+  var sb = $("setbox");
+  if (!st.set.length) sb.innerHTML = '<span class="empty">empty</span>';
+  else sb.innerHTML = st.set.map(function(c,k){
+    var isNew = st.t==="add" && k===st.set.length-1;
+    return '<span class="chip'+(isNew?' new':'')+'">'+c.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</span>';
+  }).join("");
+  $("si").textContent = st.i === null ? "–" : st.i;
+  $("sj").textContent = st.j === null ? "–" : st.j;
+  $("sl").textContent = st.len;
+  $("sm").textContent = st.max;
+  var m = $("msg");
+  m.textContent = st.msg;
+  m.className = "msg" + (st.t==="dup" ? " dupmsg" : st.t==="add" ? " addmsg" : "");
+  var lines = document.querySelectorAll(".ln");
+  for (var a = 0; a < lines.length; a++){
+    lines[a].className = "ln" + (st.lines.indexOf(a) >= 0 ? " on" : "");
+  }
+  $("count").textContent = "Step " + (idx+1) + " of " + steps.length;
+  $("prev").disabled = $("first").disabled = idx === 0;
+  $("next").disabled = idx === steps.length-1;
+  if (idx === steps.length-1) stop();
+}
+
+function delay(){ return 1500 - (+$("speed").value) * 130; }
+function stop(){ if (timer){ clearTimeout(timer); timer = null; } $("play").textContent = "\u25B6 Play"; }
+function tick(){
+  if (idx < steps.length-1){
+    idx++; render();
+    if (idx < steps.length-1 && $("play").textContent.indexOf("Pause")>=0) timer = setTimeout(tick, delay());
+  }
+}
+function play(){
+  if (idx >= steps.length-1){ idx = 0; render(); }
+  $("play").textContent = "\u23F8 Pause";
+  timer = setTimeout(tick, delay());
+}
+
+function load(str){
+  stop();
+  s = str; steps = build(s); idx = 0;
+  renderTiles(); render();
+}
+
+$("play").onclick = function(){ if ($("play").textContent.indexOf("Pause")>=0) stop(); else play(); };
+$("next").onclick = function(){ stop(); if (idx < steps.length-1){ idx++; render(); } };
+$("prev").onclick = function(){ stop(); if (idx > 0){ idx--; render(); } };
+$("first").onclick = function(){ stop(); idx = 0; render(); };
+$("load").onclick = function(){ load($("inp").value); };
+$("inp").addEventListener("keydown", function(e){ if (e.key === "Enter") load($("inp").value); });
+document.addEventListener("keydown", function(e){
+  if (e.target.tagName === "INPUT" && e.target.type === "text") return;
+  if (e.key === "ArrowRight") $("next").click();
+  if (e.key === "ArrowLeft") $("prev").click();
+});
+
+["abcabcbb","bbbbb","pwwkew","dvdf"].forEach(function(w){
+  var b = document.createElement("button");
+  b.textContent = w;
+  b.onclick = function(){ $("inp").value = w; load(w); };
+  $("chips").appendChild(b);
+});
+
+renderCode();
+load("abcabcbb");
+})();
+</script>
+</body>
+</html>
