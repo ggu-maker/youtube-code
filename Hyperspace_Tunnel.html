@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyperspace Tunnel</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: crosshair; }
+  canvas { display: block; }
+  .hint {
+    position: fixed; top: 16px; width: 100%; text-align: center; pointer-events: none;
+    font: 13px system-ui, sans-serif; color: rgba(255,255,255,.6); letter-spacing: .08em;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint">MOVE to steer · HOLD click to hyperjump · SPACE to flip the colors</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+// ---- input ----
+const steer = { x: 0, y: 0, tx: 0, ty: 0 };
+function move(e) {
+  const p = e.touches ? e.touches[0] : e;
+  steer.tx = (p.clientX / W - 0.5) * 2;
+  steer.ty = (p.clientY / H - 0.5) * 2;
+}
+addEventListener('mousemove', move);
+addEventListener('touchmove', move, { passive: true });
+let boost = false, invert = false;
+addEventListener('mousedown', () => boost = true);
+addEventListener('mouseup', () => boost = false);
+addEventListener('touchstart', () => boost = true, { passive: true });
+addEventListener('touchend', () => boost = false);
+addEventListener('keydown', e => { if (e.code === 'Space') { invert = !invert; e.preventDefault(); } });
+
+// ---- tunnel rings ----
+const RINGS = 40, DEPTH = 40;
+const rings = [];
+for (let i = 0; i < RINGS; i++) rings.push({ z: i / RINGS * DEPTH, sides: 3 + (i % 5), twist: Math.random() * 6 });
+
+// ---- stars streaking past ----
+const STARS = 500;
+const stars = Array.from({ length: STARS }, () => ({
+  x: (Math.random() - 0.5) * 30, y: (Math.random() - 0.5) * 30, z: Math.random() * DEPTH,
+}));
+
+let t = 0, speed = 0.15;
+
+function project(x, y, z, cx, cy, f) {
+  const s = f / z;
+  return [cx + x * s, cy + y * s, s];
+}
+
+// 3D rotating wireframe shape (icosahedron-ish via cube + octa blend)
+const shapeV = [];
+for (const a of [-1, 1]) for (const b of [-1, 1]) for (const c of [-1, 1]) shapeV.push([a, b, c]);
+shapeV.push([2,0,0],[-2,0,0],[0,2,0],[0,-2,0],[0,0,2],[0,0,-2]);
+const shapeE = [];
+for (let i = 0; i < shapeV.length; i++) for (let j = i + 1; j < shapeV.length; j++) {
+  const d = Math.hypot(...shapeV[i].map((v, k) => v - shapeV[j][k]));
+  if (d > 1.9 && d < 2.3) shapeE.push([i, j]);
+}
+
+function frame() {
+  t += 0.016;
+  speed += ((boost ? 1.4 : 0.15) - speed) * 0.06;
+  steer.x += (steer.tx - steer.x) * 0.06;
+  steer.y += (steer.ty - steer.y) * 0.06;
+
+  // smear previous frame; more smear while boosting
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = `rgba(0,0,0,${boost ? 0.12 : 0.3})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
+
+  const f = Math.min(W, H) * 0.9;
+  const cx = W / 2 - steer.x * W * 0.18;
+  const cy = H / 2 - steer.y * H * 0.18;
+  const hueBase = (t * 40 + (invert ? 180 : 0)) % 360;
+
+  // rings (draw far -> near)
+  rings.sort((a, b) => b.z - a.z);
+  for (const r of rings) {
+    r.z -= speed;
+    if (r.z < 0.3) { r.z += DEPTH; r.sides = 3 + Math.floor(Math.random() * 6); r.twist = Math.random() * 6; }
+    const radius = 5;
+    const wob = Math.sin(t * 1.5 + r.z * 0.4) * 0.8;     // wobble along depth
+    const rot = t * 0.5 + r.z * 0.12 + r.twist;          // spiral twist
+    const hue = (hueBase + r.z * 8) % 360;
+    const fade = Math.min(1, (DEPTH - r.z) / 10);
+    ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${0.75 * fade})`;
+    ctx.lineWidth = Math.max(0.5, 18 / r.z);
+    ctx.beginPath();
+    for (let i = 0; i <= r.sides; i++) {
+      const a = rot + (i / r.sides) * Math.PI * 2;
+      const [px, py] = project(Math.cos(a) * (radius + wob), Math.sin(a) * (radius + wob), r.z, cx, cy, f);
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+  }
+
+  // streaking stars
+  for (const s of stars) {
+    const prevZ = s.z;
+    s.z -= speed * 1.6;
+    if (s.z < 0.3) { s.z += DEPTH; s.x = (Math.random() - 0.5) * 30; s.y = (Math.random() - 0.5) * 30; continue; }
+    const [x1, y1, sc] = project(s.x, s.y, s.z, cx, cy, f);
+    const [x0, y0] = project(s.x, s.y, Math.min(prevZ + speed * 2, DEPTH), cx, cy, f);
+    ctx.strokeStyle = `hsla(${(hueBase + 180) % 360}, 80%, 80%, ${Math.min(1, sc * 0.6)})`;
+    ctx.lineWidth = Math.min(3, sc * 0.5 + 0.3);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  }
+
+  // pulsing 3D crystal in the middle
+  const pulse = 1 + Math.sin(t * 4) * 0.2 + (boost ? 0.4 : 0);
+  const ax = t * 0.9, ay = t * 1.3, az = t * 0.6;
+  const pts = shapeV.map(([x, y, z]) => {
+    let [a, b, c] = [x * pulse, y * pulse, z * pulse];
+    let t1 = b * Math.cos(ax) - c * Math.sin(ax); c = b * Math.sin(ax) + c * Math.cos(ax); b = t1;
+    t1 = a * Math.cos(ay) + c * Math.sin(ay); c = -a * Math.sin(ay) + c * Math.cos(ay); a = t1;
+    t1 = a * Math.cos(az) - b * Math.sin(az); b = a * Math.sin(az) + b * Math.cos(az); a = t1;
+    return project(a, b, c + 6, cx, cy, f * 0.9);
+  });
+  ctx.lineWidth = 2;
+  shapeE.forEach(([i, j], k) => {
+    ctx.strokeStyle = `hsla(${(hueBase + k * 12) % 360}, 100%, 70%, 0.9)`;
+    ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke();
+  });
+
+  // center glow
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 160);
+  g.addColorStop(0, `hsla(${hueBase}, 100%, 70%, 0.35)`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(cx - 160, cy - 160, 320, 320);
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
